@@ -7,6 +7,11 @@ struct ContentView: View {
     @State private var outputMode: OutputMode = .embedInVideo
     @State private var language: Language = .auto
     @State private var sensitivity: Sensitivity = .normal
+    @State private var selectedTranslations: Set<TranslationLanguage> = []
+    @State private var authMethod: AuthMethod = .claudeOAuth
+    @State private var claudeApiKey: String = ""
+    @State private var claudeOAuthToken: String = ""
+    @State private var openaiApiKey: String = ""
     @State private var subtitleDelay: SubtitleDelay = .normal
     @StateObject private var toolChecker = ToolChecker()
     @StateObject private var engine = TranscriptionEngine()
@@ -180,13 +185,8 @@ struct ContentView: View {
 
     private var optionsSection: some View {
         DisclosureGroup("옵션") {
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
-                GridRow {
-                    Text("모델")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 50, alignment: .trailing)
-                        .gridColumnAlignment(.trailing)
-
+            VStack(alignment: .leading, spacing: 12) {
+                optionRow("모델") {
                     Picker("", selection: $selectedModel) {
                         ForEach(WhisperModel.allCases) { model in
                             Text(model.displayName).tag(model)
@@ -194,13 +194,9 @@ struct ContentView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
-                    .disabled(engine.isProcessing)
                 }
 
-                GridRow {
-                    Text("출력")
-                        .foregroundStyle(.secondary)
-
+                optionRow("출력") {
                     Picker("", selection: $outputMode) {
                         ForEach(OutputMode.allCases) { mode in
                             Text(mode.label).tag(mode)
@@ -208,13 +204,9 @@ struct ContentView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
-                    .disabled(engine.isProcessing)
                 }
 
-                GridRow {
-                    Text("언어")
-                        .foregroundStyle(.secondary)
-
+                optionRow("언어") {
                     Picker("", selection: $language) {
                         ForEach(Language.allCases) { lang in
                             Text(lang.label).tag(lang)
@@ -222,13 +214,9 @@ struct ContentView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
-                    .disabled(engine.isProcessing)
                 }
 
-                GridRow {
-                    Text("감도")
-                        .foregroundStyle(.secondary)
-
+                optionRow("감도") {
                     Picker("", selection: $sensitivity) {
                         ForEach(Sensitivity.allCases) { s in
                             Text(s.label).tag(s)
@@ -237,13 +225,9 @@ struct ContentView: View {
                     .pickerStyle(.radioGroup)
                     .horizontalRadioGroupLayout()
                     .labelsHidden()
-                    .disabled(engine.isProcessing)
                 }
 
-                GridRow {
-                    Text("딜레이")
-                        .foregroundStyle(.secondary)
-
+                optionRow("딜레이") {
                     Picker("", selection: $subtitleDelay) {
                         ForEach(SubtitleDelay.allCases) { delay in
                             Text(delay.label).tag(delay)
@@ -251,13 +235,88 @@ struct ContentView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
-                    .disabled(engine.isProcessing)
+                }
+
+                Divider()
+
+                optionRow("번역") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        FlowLayout(spacing: 8) {
+                            ForEach(TranslationLanguage.allCases) { lang in
+                                Toggle(lang.label, isOn: Binding(
+                                    get: { selectedTranslations.contains(lang) },
+                                    set: { if $0 { selectedTranslations.insert(lang) } else { selectedTranslations.remove(lang) } }
+                                ))
+                                .toggleStyle(.checkbox)
+                                .font(.body)
+                            }
+                        }
+                        if !selectedTranslations.isEmpty {
+                            Text("Claude API로 \(selectedTranslations.count)개 언어에 병렬 번역")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+
+                if !selectedTranslations.isEmpty {
+                    Divider()
+
+                    optionRow("인증") {
+                        Picker("", selection: $authMethod) {
+                            ForEach(AuthMethod.allCases) { method in
+                                Text(method.label).tag(method)
+                            }
+                        }
+                        .pickerStyle(.radioGroup)
+                        .horizontalRadioGroupLayout()
+                        .labelsHidden()
+                    }
+
+                    optionRow("") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            switch authMethod {
+                            case .claudeOAuth:
+                                SecureField("OAuth Token", text: $claudeOAuthToken)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(maxWidth: 300)
+                                Text("터미널에서 'claude setup-token' 실행하여 발급 (Pro/Max)")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            case .claudeApiKey:
+                                SecureField("sk-ant-...", text: $claudeApiKey)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(maxWidth: 300)
+                                Text("console.anthropic.com에서 발급")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            case .openaiApiKey:
+                                SecureField("sk-...", text: $openaiApiKey)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(maxWidth: 300)
+                                Text("platform.openai.com에서 발급")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
                 }
             }
+            .disabled(engine.isProcessing)
             .padding(.top, 8)
         }
         .font(.headline)
         .padding()
+    }
+
+    private func optionRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .frame(width: 50, alignment: .trailing)
+                .font(.body)
+            content()
+        }
     }
 
     // MARK: - Action
@@ -360,7 +419,12 @@ struct ContentView: View {
             keepSrtFile: outputMode == .srtOnly,
             subtitleDelay: subtitleDelay.seconds,
             noSpeechThreshold: sensitivity.noSpeechThreshold,
-            language: language.rawValue
+            language: language.rawValue,
+            translationTargets: selectedTranslations,
+            authMethod: authMethod,
+            claudeApiKey: claudeApiKey,
+            claudeOAuthToken: claudeOAuthToken,
+            openaiApiKey: openaiApiKey
         )
         engine.process(files: files, options: options) { index, status in
             if index < files.count {

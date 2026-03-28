@@ -35,6 +35,11 @@ class TranscriptionEngine: ObservableObject {
         var subtitleDelay: Double
         var noSpeechThreshold: Double
         var language: String  // empty = auto detect
+        var translationTargets: Set<TranslationLanguage>
+        var authMethod: AuthMethod
+        var claudeApiKey: String
+        var claudeOAuthToken: String
+        var openaiApiKey: String
     }
 
     private func findBinary(_ name: String) -> String? {
@@ -286,7 +291,36 @@ class TranscriptionEngine: ObservableObject {
             }
         }
 
-        // Step 4: Remove srt if not keeping
+        // Step 4: Translate to other languages using Claude API
+        let hasAuth: Bool
+        switch options.authMethod {
+        case .claudeOAuth: hasAuth = !options.claudeOAuthToken.isEmpty
+        case .claudeApiKey: hasAuth = !options.claudeApiKey.isEmpty
+        case .openaiApiKey: hasAuth = !options.openaiApiKey.isEmpty
+        }
+        if !options.translationTargets.isEmpty && hasAuth {
+            DispatchQueue.main.async {
+                self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) 번역 중 (\(options.translationTargets.count)개 언어)..."
+            }
+
+            let translator = TranslationEngine(authMethod: options.authMethod, claudeApiKey: options.claudeApiKey, claudeOAuthToken: options.claudeOAuthToken, openaiApiKey: options.openaiApiKey)
+            let translations = translator.translateSrt(
+                srtContent: srtContent,
+                sourceLang: language,
+                targetLangs: Array(options.translationTargets)
+            ) { progress in
+                DispatchQueue.main.async {
+                    self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) \(progress)"
+                }
+            }
+
+            for (lang, translatedSrt) in translations {
+                let translatedPath = "\(dir)/\(nameNoExt).\(lang.rawValue).srt"
+                try? translatedSrt.write(toFile: translatedPath, atomically: true, encoding: .utf8)
+            }
+        }
+
+        // Step 5: Remove srt if not keeping
         if !options.keepSrtFile {
             try? fm.removeItem(atPath: srtPath)
         }

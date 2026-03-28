@@ -148,6 +148,56 @@ enum Sensitivity: String, CaseIterable, Identifiable {
     }
 }
 
+enum AuthMethod: String, CaseIterable, Identifiable {
+    case claudeOAuth
+    case claudeApiKey
+    case openaiApiKey
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .claudeOAuth: return "Claude Code (Pro/Max)"
+        case .claudeApiKey: return "Claude API 키"
+        case .openaiApiKey: return "OpenAI API 키"
+        }
+    }
+}
+
+enum TranslationLanguage: String, CaseIterable, Identifiable {
+    case ko, ja, en, zh, fr, de, es, pt, ru
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .ko: return "한국어"
+        case .ja: return "일본어"
+        case .en: return "영어"
+        case .zh: return "중국어"
+        case .fr: return "프랑스어"
+        case .de: return "독일어"
+        case .es: return "스페인어"
+        case .pt: return "포르투갈어"
+        case .ru: return "러시아어"
+        }
+    }
+
+    var langName: String {
+        switch self {
+        case .ko: return "Korean"
+        case .ja: return "Japanese"
+        case .en: return "English"
+        case .zh: return "Chinese"
+        case .fr: return "French"
+        case .de: return "German"
+        case .es: return "Spanish"
+        case .pt: return "Portuguese"
+        case .ru: return "Russian"
+        }
+    }
+}
+
 enum SubtitleDelay: Double, CaseIterable, Identifiable {
     case immediate = 0.0
     case quick = 0.3
