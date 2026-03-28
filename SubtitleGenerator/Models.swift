@@ -149,7 +149,7 @@ enum Sensitivity: String, CaseIterable, Identifiable {
 }
 
 enum AuthMethod: String, CaseIterable, Identifiable {
-    case claudeOAuth
+    case claudeCode
     case claudeApiKey
     case openaiApiKey
 
@@ -157,9 +157,57 @@ enum AuthMethod: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .claudeOAuth: return "Claude Code (Pro/Max)"
+        case .claudeCode: return "Claude Code (구독)"
         case .claudeApiKey: return "Claude API 키"
         case .openaiApiKey: return "OpenAI API 키"
+        }
+    }
+
+    var needsApiKey: Bool {
+        self != .claudeCode
+    }
+}
+
+enum TranslationModel: String, CaseIterable, Identifiable {
+    // Claude
+    case claudeOpus = "claude-opus-4-20250514"
+    case claudeSonnet = "claude-sonnet-4-20250514"
+    case claudeHaiku = "claude-haiku-4-5-20251001"
+    // OpenAI
+    case gpt4o = "gpt-4o"
+    case gpt4oMini = "gpt-4o-mini"
+    case gpt41 = "gpt-4.1"
+    case gpt41Mini = "gpt-4.1-mini"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .claudeOpus: return "Claude Opus"
+        case .claudeSonnet: return "Claude Sonnet"
+        case .claudeHaiku: return "Claude Haiku"
+        case .gpt4o: return "GPT-4o"
+        case .gpt4oMini: return "GPT-4o mini"
+        case .gpt41: return "GPT-4.1"
+        case .gpt41Mini: return "GPT-4.1 mini"
+        }
+    }
+
+    var isClaude: Bool {
+        switch self {
+        case .claudeOpus, .claudeSonnet, .claudeHaiku: return true
+        default: return false
+        }
+    }
+
+    var isOpenAI: Bool { !isClaude }
+
+    static func models(for auth: AuthMethod) -> [TranslationModel] {
+        switch auth {
+        case .claudeCode, .claudeApiKey:
+            return [.claudeSonnet, .claudeOpus, .claudeHaiku]
+        case .openaiApiKey:
+            return [.gpt4oMini, .gpt4o, .gpt41Mini, .gpt41]
         }
     }
 }

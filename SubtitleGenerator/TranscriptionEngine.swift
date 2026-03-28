@@ -37,8 +37,9 @@ class TranscriptionEngine: ObservableObject {
         var language: String  // empty = auto detect
         var translationTargets: Set<TranslationLanguage>
         var authMethod: AuthMethod
+        var translationModel: String
         var claudeApiKey: String
-        var claudeOAuthToken: String
+
         var openaiApiKey: String
     }
 
@@ -294,7 +295,7 @@ class TranscriptionEngine: ObservableObject {
         // Step 4: Translate to other languages using Claude API
         let hasAuth: Bool
         switch options.authMethod {
-        case .claudeOAuth: hasAuth = !options.claudeOAuthToken.isEmpty
+        case .claudeCode: hasAuth = true
         case .claudeApiKey: hasAuth = !options.claudeApiKey.isEmpty
         case .openaiApiKey: hasAuth = !options.openaiApiKey.isEmpty
         }
@@ -303,7 +304,7 @@ class TranscriptionEngine: ObservableObject {
                 self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) 번역 중 (\(options.translationTargets.count)개 언어)..."
             }
 
-            let translator = TranslationEngine(authMethod: options.authMethod, claudeApiKey: options.claudeApiKey, claudeOAuthToken: options.claudeOAuthToken, openaiApiKey: options.openaiApiKey)
+            let translator = TranslationEngine(authMethod: options.authMethod, translationModel: options.translationModel, claudeApiKey: options.claudeApiKey, openaiApiKey: options.openaiApiKey)
             let translations = translator.translateSrt(
                 srtContent: srtContent,
                 sourceLang: language,
@@ -356,7 +357,7 @@ class TranscriptionEngine: ObservableObject {
         return Double(output.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
     }
 
-    private func parseSrtTimestamp(_ str: String) -> Double {
+    func parseSrtTimestamp(_ str: String) -> Double {
         // Parse "MM:SS.mmm" format
         let parts = str.components(separatedBy: ":")
         guard parts.count == 2 else { return 0 }
@@ -377,11 +378,11 @@ class TranscriptionEngine: ObservableObject {
         "he": "heb", "uk": "ukr", "cs": "ces", "ro": "ron", "hu": "hun",
     ]
 
-    private func langCode3(_ code2: String) -> String {
+    func langCode3(_ code2: String) -> String {
         langMap[code2] ?? code2
     }
 
-    private func generateSrt(from segments: [[String: Any]]) -> String {
+    func generateSrt(from segments: [[String: Any]]) -> String {
         var lines: [String] = []
         for (i, seg) in segments.enumerated() {
             guard let start = seg["start"] as? Double,
@@ -399,7 +400,7 @@ class TranscriptionEngine: ObservableObject {
         return lines.joined(separator: "\n")
     }
 
-    private func formatSrtTime(_ seconds: Double) -> String {
+    func formatSrtTime(_ seconds: Double) -> String {
         let h = Int(seconds) / 3600
         let m = (Int(seconds) % 3600) / 60
         let s = seconds.truncatingRemainder(dividingBy: 60)

@@ -8,10 +8,12 @@ struct ContentView: View {
     @State private var language: Language = .auto
     @State private var sensitivity: Sensitivity = .normal
     @State private var selectedTranslations: Set<TranslationLanguage> = []
-    @State private var authMethod: AuthMethod = .claudeOAuth
+    @State private var authMethod: AuthMethod = .claudeCode
+    @State private var translationModel: TranslationModel = .claudeSonnet
     @State private var claudeApiKey: String = ""
-    @State private var claudeOAuthToken: String = ""
     @State private var openaiApiKey: String = ""
+    @State private var isAuthVerified = false
+    @State private var isVerifying = false
     @State private var subtitleDelay: SubtitleDelay = .normal
     @StateObject private var toolChecker = ToolChecker()
     @StateObject private var engine = TranscriptionEngine()
@@ -37,7 +39,7 @@ struct ContentView: View {
 
             actionSection
         }
-        .frame(width: 640, height: toolChecker.allInstalled ? 720 : 820)
+        .frame(width: 780, height: toolChecker.allInstalled ? 720 : 820)
         .onAppear {
             toolChecker.checkAll()
         }
@@ -185,87 +187,47 @@ struct ContentView: View {
 
     private var optionsSection: some View {
         DisclosureGroup("옵션") {
-            VStack(alignment: .leading, spacing: 12) {
-                optionRow("모델") {
-                    Picker("", selection: $selectedModel) {
-                        ForEach(WhisperModel.allCases) { model in
-                            Text(model.displayName).tag(model)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                }
+            HStack(alignment: .top, spacing: 0) {
+                // Left: 자막 생성 옵션
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("자막 생성")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.primary)
 
-                optionRow("출력") {
-                    Picker("", selection: $outputMode) {
-                        ForEach(OutputMode.allCases) { mode in
-                            Text(mode.label).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                }
-
-                optionRow("언어") {
-                    Picker("", selection: $language) {
-                        ForEach(Language.allCases) { lang in
-                            Text(lang.label).tag(lang)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                }
-
-                optionRow("감도") {
-                    Picker("", selection: $sensitivity) {
-                        ForEach(Sensitivity.allCases) { s in
-                            Text(s.label).tag(s)
-                        }
-                    }
-                    .pickerStyle(.radioGroup)
-                    .horizontalRadioGroupLayout()
-                    .labelsHidden()
-                }
-
-                optionRow("딜레이") {
-                    Picker("", selection: $subtitleDelay) {
-                        ForEach(SubtitleDelay.allCases) { delay in
-                            Text(delay.label).tag(delay)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                }
-
-                Divider()
-
-                optionRow("번역") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        FlowLayout(spacing: 8) {
-                            ForEach(TranslationLanguage.allCases) { lang in
-                                Toggle(lang.label, isOn: Binding(
-                                    get: { selectedTranslations.contains(lang) },
-                                    set: { if $0 { selectedTranslations.insert(lang) } else { selectedTranslations.remove(lang) } }
-                                ))
-                                .toggleStyle(.checkbox)
-                                .font(.body)
+                    optionRow("모델") {
+                        Picker("", selection: $selectedModel) {
+                            ForEach(WhisperModel.allCases) { model in
+                                Text(model.displayName).tag(model)
                             }
                         }
-                        if !selectedTranslations.isEmpty {
-                            Text("Claude API로 \(selectedTranslations.count)개 언어에 병렬 번역")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
                     }
-                }
 
-                if !selectedTranslations.isEmpty {
-                    Divider()
+                    optionRow("출력") {
+                        Picker("", selection: $outputMode) {
+                            ForEach(OutputMode.allCases) { mode in
+                                Text(mode.label).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                    }
 
-                    optionRow("인증") {
-                        Picker("", selection: $authMethod) {
-                            ForEach(AuthMethod.allCases) { method in
-                                Text(method.label).tag(method)
+                    optionRow("언어") {
+                        Picker("", selection: $language) {
+                            ForEach(Language.allCases) { lang in
+                                Text(lang.label).tag(lang)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                    }
+
+                    optionRow("감도") {
+                        Picker("", selection: $sensitivity) {
+                            ForEach(Sensitivity.allCases) { s in
+                                Text(s.label).tag(s)
                             }
                         }
                         .pickerStyle(.radioGroup)
@@ -273,34 +235,129 @@ struct ContentView: View {
                         .labelsHidden()
                     }
 
+                    optionRow("딜레이") {
+                        Picker("", selection: $subtitleDelay) {
+                            ForEach(SubtitleDelay.allCases) { delay in
+                                Text(delay.label).tag(delay)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Divider()
+                    .padding(.horizontal, 8)
+
+                // Right: 번역 옵션
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("번역")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.primary)
+
+                    optionRow("인증") {
+                        Picker("", selection: $authMethod) {
+                            ForEach(AuthMethod.allCases) { method in
+                                Text(method.label).tag(method)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .onChange(of: authMethod) { _, newValue in
+                            isAuthVerified = false
+                            selectedTranslations.removeAll()
+                            let models = TranslationModel.models(for: newValue)
+                            if !models.contains(translationModel) {
+                                translationModel = models.first!
+                            }
+                        }
+                    }
+
+                    optionRow("모델") {
+                        Picker("", selection: $translationModel) {
+                            ForEach(TranslationModel.models(for: authMethod)) { model in
+                                Text(model.label).tag(model)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                    }
+
                     optionRow("") {
                         VStack(alignment: .leading, spacing: 4) {
                             switch authMethod {
-                            case .claudeOAuth:
-                                SecureField("OAuth Token", text: $claudeOAuthToken)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 300)
-                                Text("터미널에서 'claude setup-token' 실행하여 발급 (Pro/Max)")
+                            case .claudeCode:
+                                Text("Claude Code 구독 인증을 사용합니다")
                                     .font(.caption)
                                     .foregroundStyle(.tertiary)
                             case .claudeApiKey:
                                 SecureField("sk-ant-...", text: $claudeApiKey)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 300)
-                                Text("console.anthropic.com에서 발급")
+                                    .onChange(of: claudeApiKey) { _, _ in isAuthVerified = false }
+                                Text("console.anthropic.com")
                                     .font(.caption)
                                     .foregroundStyle(.tertiary)
                             case .openaiApiKey:
                                 SecureField("sk-...", text: $openaiApiKey)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 300)
-                                Text("platform.openai.com에서 발급")
+                                    .onChange(of: openaiApiKey) { _, _ in isAuthVerified = false }
+                                Text("platform.openai.com")
                                     .font(.caption)
                                     .foregroundStyle(.tertiary)
                             }
+
+                            HStack(spacing: 8) {
+                                if isAuthVerified {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                    Text("인증됨")
+                                        .font(.caption)
+                                        .foregroundStyle(.green)
+                                } else {
+                                    Button {
+                                        verifyAuth()
+                                    } label: {
+                                        if isVerifying {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                        } else {
+                                            Text("인증 확인")
+                                        }
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .disabled(currentAuthToken.isEmpty || isVerifying)
+                                }
+                            }
+                        }
+                    }
+
+                    if isAuthVerified {
+                        Divider()
+
+                        optionRow("언어") {
+                            FlowLayout(spacing: 8) {
+                                ForEach(TranslationLanguage.allCases) { lang in
+                                    Toggle(lang.label, isOn: Binding(
+                                        get: { selectedTranslations.contains(lang) },
+                                        set: { if $0 { selectedTranslations.insert(lang) } else { selectedTranslations.remove(lang) } }
+                                    ))
+                                    .toggleStyle(.checkbox)
+                                    .font(.body)
+                                }
+                            }
+                        }
+
+                        if !selectedTranslations.isEmpty {
+                            Text("\(selectedTranslations.count)개 언어에 병렬 번역")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .padding(.leading, 62)
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .disabled(engine.isProcessing)
             .padding(.top, 8)
@@ -412,6 +469,41 @@ struct ContentView: View {
         }
     }
 
+    private var currentAuthToken: String {
+        switch authMethod {
+        case .claudeCode: return "claude-cli"
+        case .claudeApiKey: return claudeApiKey
+        case .openaiApiKey: return openaiApiKey
+        }
+    }
+
+    private func verifyAuth() {
+        isVerifying = true
+        DispatchQueue.global().async {
+            let success = self.testAPICall()
+            DispatchQueue.main.async {
+                self.isAuthVerified = success
+                self.isVerifying = false
+            }
+        }
+    }
+
+    private func testAPICall() -> Bool {
+        let translator = TranslationEngine(
+            authMethod: authMethod,
+            translationModel: translationModel.rawValue,
+            claudeApiKey: claudeApiKey,
+
+            openaiApiKey: openaiApiKey
+        )
+        let result = translator.translateSrt(
+            srtContent: "1\n00:00:00,000 --> 00:00:01,000\ntest\n",
+            sourceLang: "en",
+            targetLangs: [.ko]
+        ) { _ in }
+        return !result.isEmpty
+    }
+
     private func startProcessing() {
         let options = TranscriptionEngine.Options(
             model: selectedModel.rawValue,
@@ -422,8 +514,9 @@ struct ContentView: View {
             language: language.rawValue,
             translationTargets: selectedTranslations,
             authMethod: authMethod,
+            translationModel: translationModel.rawValue,
             claudeApiKey: claudeApiKey,
-            claudeOAuthToken: claudeOAuthToken,
+
             openaiApiKey: openaiApiKey
         )
         engine.process(files: files, options: options) { index, status in

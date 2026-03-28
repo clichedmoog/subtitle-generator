@@ -8,6 +8,11 @@ let package = Package(
         .executableTarget(
             name: "SubtitleGenerator",
             path: "SubtitleGenerator"
+        ),
+        .testTarget(
+            name: "SubtitleGeneratorTests",
+            dependencies: ["SubtitleGenerator"],
+            path: "Tests"
         )
     ]
 )
