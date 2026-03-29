@@ -267,6 +267,114 @@ final class TranscriptionEngineTests: XCTestCase {
         XCTAssertEqual(entries.count, 1)
         XCTAssertTrue(srt.contains("valid"))
     }
+    // MARK: - isPunctuationOnly
+
+    func testIsPunctuationOnly() {
+        XCTAssertTrue(engine.isPunctuationOnly("..."))
+        XCTAssertTrue(engine.isPunctuationOnly("♪♪♪"))
+        XCTAssertTrue(engine.isPunctuationOnly("、、、"))
+        XCTAssertTrue(engine.isPunctuationOnly("…"))
+        XCTAssertTrue(engine.isPunctuationOnly("  "))
+    }
+
+    func testIsPunctuationOnlyNormal() {
+        XCTAssertFalse(engine.isPunctuationOnly("hello"))
+        XCTAssertFalse(engine.isPunctuationOnly("あ"))
+        XCTAssertFalse(engine.isPunctuationOnly("test..."))
+    }
+
+    // MARK: - isHallucination
+
+    func testIsHallucinationJapanese() {
+        XCTAssertTrue(engine.isHallucination("ご視聴ありがとうございました"))
+        XCTAssertTrue(engine.isHallucination("チャンネル登録お願いします"))
+    }
+
+    func testIsHallucinationEnglish() {
+        XCTAssertTrue(engine.isHallucination("Thank you for watching"))
+        XCTAssertTrue(engine.isHallucination("Please subscribe"))
+    }
+
+    func testIsHallucinationNormal() {
+        XCTAssertFalse(engine.isHallucination("おはようございます"))
+        XCTAssertFalse(engine.isHallucination("Hello world"))
+    }
+
+    // MARK: - isOverDense
+
+    func testIsOverDenseNormal() {
+        XCTAssertFalse(engine.isOverDense(text: "おはようございます", duration: 2.0))  // 9 chars / 2s = 4.5
+    }
+
+    func testIsOverDenseHallucination() {
+        let longText = String(repeating: "あ", count: 100)
+        XCTAssertTrue(engine.isOverDense(text: longText, duration: 1.0))  // 100 chars / 1s
+    }
+
+    func testIsOverDenseZeroDuration() {
+        XCTAssertTrue(engine.isOverDense(text: "test", duration: 0))
+    }
+
+    // MARK: - generateSrt advanced filters
+
+    func testGenerateSrtFiltersTooShort() {
+        let segments: [[String: Any]] = [
+            ["start": 0.0, "end": 0.1, "text": "あ"],         // 0.1s < 0.3s → filtered
+            ["start": 1.0, "end": 3.0, "text": "正常"],       // 2.0s → kept
+        ]
+        let srt = engine.generateSrt(from: segments, delay: 0)
+        XCTAssertFalse(srt.contains("あ"))
+        XCTAssertTrue(srt.contains("正常"))
+    }
+
+    func testGenerateSrtFiltersHallucination() {
+        let segments: [[String: Any]] = [
+            ["start": 0.0, "end": 5.0, "text": "ご視聴ありがとうございました"],
+            ["start": 5.0, "end": 8.0, "text": "正常なテキスト"],
+        ]
+        let srt = engine.generateSrt(from: segments, delay: 0)
+        XCTAssertFalse(srt.contains("ご視聴"))
+        XCTAssertTrue(srt.contains("正常なテキスト"))
+    }
+
+    func testGenerateSrtFiltersPunctuationOnly() {
+        let segments: [[String: Any]] = [
+            ["start": 0.0, "end": 2.0, "text": "♪♪♪"],
+            ["start": 2.0, "end": 4.0, "text": "会話"],
+        ]
+        let srt = engine.generateSrt(from: segments, delay: 0)
+        XCTAssertFalse(srt.contains("♪"))
+        XCTAssertTrue(srt.contains("会話"))
+    }
+
+    func testGenerateSrtFiltersOverDense() {
+        let longText = String(repeating: "あいうえお", count: 20)  // 100 chars
+        let segments: [[String: Any]] = [
+            ["start": 0.0, "end": 1.0, "text": longText],        // 100 chars/1s → filtered
+            ["start": 2.0, "end": 5.0, "text": "正常"],
+        ]
+        let srt = engine.generateSrt(from: segments, delay: 0)
+        XCTAssertFalse(srt.contains("あいうえお"))
+        XCTAssertTrue(srt.contains("正常"))
+    }
+
+    func testGenerateSrtFiltersEndOfVideoHallucination() {
+        let segments: [[String: Any]] = [
+            ["start": 0.0, "end": 3.0, "text": "序盤"],
+            ["start": 97.0, "end": 100.0, "text": "怪しいテキスト", "no_speech_prob": 0.8],
+        ]
+        let srt = engine.generateSrt(from: segments, delay: 0, totalDuration: 100)
+        XCTAssertTrue(srt.contains("序盤"))
+        XCTAssertFalse(srt.contains("怪しい"))
+    }
+
+    func testGenerateSrtKeepsEndOfVideoWithSpeech() {
+        let segments: [[String: Any]] = [
+            ["start": 95.0, "end": 98.0, "text": "最後のセリフ", "no_speech_prob": 0.1],
+        ]
+        let srt = engine.generateSrt(from: segments, delay: 0, totalDuration: 100)
+        XCTAssertTrue(srt.contains("最後のセリフ"))
+    }
 }
 
 final class ModelTests: XCTestCase {

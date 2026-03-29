@@ -465,7 +465,7 @@ class TranscriptionEngine: ObservableObject {
         }
         logDebug("Parsed \(segments.count) segments")
 
-        let srtContent = generateSrt(from: segments, delay: options.subtitleDelay)
+        let srtContent = generateSrt(from: segments, delay: options.subtitleDelay, totalDuration: totalDuration)
         guard !srtContent.isEmpty else {
             return .failed(error: "자막 내용 없음")
         }
@@ -623,6 +623,27 @@ class TranscriptionEngine: ObservableObject {
         langMap[code2] ?? code2
     }
 
+    // MARK: - Post-processing filters
+
+    /// Known whisper hallucination phrases
+    private let hallucinationBlacklist: Set<String> = [
+        // Japanese
+        "ご視聴ありがとうございました", "ご視聴ありがとうございます",
+        "チャンネル登録お願いします", "チャンネル登録よろしくお願いします",
+        "高評価お願いします", "コメントお願いします",
+        "次の動画でお会いしましょう", "また次の動画で",
+        "おやすみなさい", "お疲れ様でした",
+        "字幕は自動生成されています", "字幕の翻訳",
+        // English
+        "thank you for watching", "thanks for watching",
+        "please subscribe", "please like and subscribe",
+        "see you in the next video", "see you next time",
+        "subtitles by", "subtitles created by",
+        "translated by", "captions by",
+        // Korean
+        "시청해 주셔서 감사합니다", "구독과 좋아요 부탁드립니다",
+    ]
+
     /// Detect repetitive text like "ああああ", "うっ、うっ、うっ", "ダメダメダメ"
     func isRepetitive(_ text: String) -> Bool {
         let cleaned = text.replacingOccurrences(of: "、", with: "")
@@ -632,11 +653,9 @@ class TranscriptionEngine: ObservableObject {
 
         guard cleaned.count >= 4 else { return false }
 
-        // Check single character repeat: ああああ
         let uniqueChars = Set(cleaned)
         if uniqueChars.count == 1 { return true }
 
-        // Check short pattern repeat: try patterns of length 1~6
         for len in 1...min(6, cleaned.count / 2) {
             let pattern = String(cleaned.prefix(len))
             let repeatCount = cleaned.count / len
@@ -647,7 +666,6 @@ class TranscriptionEngine: ObservableObject {
             }
         }
 
-        // Check comma-separated repeats: うっ、うっ、うっ
         let parts = text.components(separatedBy: "、").map { $0.trimmingCharacters(in: .whitespaces) }
         if parts.count >= 3 {
             let unique = Set(parts.filter { !$0.isEmpty })
@@ -657,12 +675,33 @@ class TranscriptionEngine: ObservableObject {
         return false
     }
 
-    func generateSrt(from segments: [[String: Any]], delay: Double = 0) -> String {
+    /// Check if text is only punctuation/symbols with no meaningful content
+    func isPunctuationOnly(_ text: String) -> Bool {
+        let stripped = text.replacingOccurrences(of: "[\\p{P}\\p{S}\\s]", with: "", options: .regularExpression)
+        return stripped.isEmpty
+    }
+
+    /// Check if text is a known hallucination phrase
+    func isHallucination(_ text: String) -> Bool {
+        let lower = text.lowercased().trimmingCharacters(in: .punctuationCharacters)
+        return hallucinationBlacklist.contains { lower.contains($0.lowercased()) }
+    }
+
+    /// Check if text density is suspiciously high (chars per second)
+    func isOverDense(text: String, duration: Double) -> Bool {
+        guard duration > 0 else { return true }
+        let charsPerSecond = Double(text.count) / duration
+        return charsPerSecond > 25  // ~25 chars/sec is extreme even for fast Japanese
+    }
+
+    func generateSrt(from segments: [[String: Any]], delay: Double = 0, totalDuration: Double = 0) -> String {
         struct SrtEntry {
             var start: Double
             var end: Double
             var text: String
         }
+
+        let minDuration = 0.3  // minimum segment duration in seconds
 
         var entries: [SrtEntry] = []
         for seg in segments {
@@ -673,8 +712,30 @@ class TranscriptionEngine: ObservableObject {
             let trimmed = text.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { continue }
 
+            let duration = end - start
+
+            // Filter 1: Too short segments (likely noise)
+            if duration < minDuration { continue }
+
+            // Filter 2: Repetitive text patterns
             if isRepetitive(trimmed) { continue }
 
+            // Filter 3: Punctuation/symbols only
+            if isPunctuationOnly(trimmed) { continue }
+
+            // Filter 4: Known hallucination phrases
+            if isHallucination(trimmed) { continue }
+
+            // Filter 5: Suspiciously dense text (hallucination indicator)
+            if isOverDense(text: trimmed, duration: duration) { continue }
+
+            // Filter 6: End-of-video hallucination (last 30s, high no_speech_prob)
+            if totalDuration > 0 && start > totalDuration - 30 {
+                let noSpeechProb = seg["no_speech_prob"] as? Double ?? 0
+                if noSpeechProb > 0.5 { continue }
+            }
+
+            // Merge consecutive duplicates
             if let last = entries.last, last.text == trimmed {
                 entries[entries.count - 1].end = end
             } else {
