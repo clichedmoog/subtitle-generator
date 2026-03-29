@@ -4,12 +4,12 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @State private var files: [FileItem] = []
     @State private var selectedModel: WhisperModel = .largev3
-    @State private var outputMode: OutputMode = .embedInVideo
+    @State private var outputMode: OutputMode = .srtOnly
     @State private var language: Language = .auto
     @State private var sensitivity: Sensitivity = .normal
     @State private var selectedTranslations: Set<TranslationLanguage> = []
     @State private var authMethod: AuthMethod = .claudeCode
-    @State private var translationModel: TranslationModel = .claudeSonnet
+    @State private var translationModel: TranslationModel = .claudeOpus1m
     @State private var claudeApiKey: String = ""
     @State private var openaiApiKey: String = ""
     @State private var isAuthVerified = false

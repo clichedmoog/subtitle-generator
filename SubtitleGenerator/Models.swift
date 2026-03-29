@@ -157,6 +157,7 @@ enum AuthMethod: String, CaseIterable, Identifiable {
 
 enum TranslationModel: String, CaseIterable, Identifiable {
     // Claude
+    case claudeOpus1m = "claude-opus-4-6[1m]"
     case claudeOpus = "claude-opus-4-20250514"
     case claudeSonnet = "claude-sonnet-4-20250514"
     case claudeHaiku = "claude-haiku-4-5-20251001"
@@ -170,6 +171,7 @@ enum TranslationModel: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
+        case .claudeOpus1m: return "Claude Opus 4.6 (1M)"
         case .claudeOpus: return "Claude Opus"
         case .claudeSonnet: return "Claude Sonnet"
         case .claudeHaiku: return "Claude Haiku"
@@ -182,7 +184,7 @@ enum TranslationModel: String, CaseIterable, Identifiable {
 
     var isClaude: Bool {
         switch self {
-        case .claudeOpus, .claudeSonnet, .claudeHaiku: return true
+        case .claudeOpus1m, .claudeOpus, .claudeSonnet, .claudeHaiku: return true
         default: return false
         }
     }
@@ -192,7 +194,7 @@ enum TranslationModel: String, CaseIterable, Identifiable {
     static func models(for auth: AuthMethod) -> [TranslationModel] {
         switch auth {
         case .claudeCode, .claudeApiKey:
-            return [.claudeSonnet, .claudeOpus, .claudeHaiku]
+            return [.claudeOpus1m, .claudeOpus, .claudeSonnet, .claudeHaiku]
         case .openaiApiKey:
             return [.gpt4oMini, .gpt4o, .gpt41Mini, .gpt41]
         }
