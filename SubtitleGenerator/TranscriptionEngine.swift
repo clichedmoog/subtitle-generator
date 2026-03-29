@@ -242,14 +242,28 @@ class TranscriptionEngine: ObservableObject {
                     )
                     let elapsed = Date().timeIntervalSince(fileStart)
 
-                    // Launch translation in background if transcription succeeded
-                    if needsTranslation, case .completed(let lang) = result {
+                    // Determine language for translation
+                    var translationLang: String?
+                    if case .completed(let lang) = result {
+                        translationLang = lang
+                    } else if result == .skipped {
+                        // Find existing srt language for skipped files
+                        translationLang = self.findExistingSrtLanguage(file: file)
+                    }
+
+                    // Launch translation in background
+                    if needsTranslation, let lang = translationLang {
                         DispatchQueue.main.async {
-                            onFileUpdate(i, .translating(lang: lang), elapsed)
+                            if result == .skipped {
+                                onFileUpdate(i, .translating(lang: lang), elapsed)
+                            } else {
+                                onFileUpdate(i, .translating(lang: lang), elapsed)
+                            }
                         }
 
                         let fileForTranslation = file
                         let fileIndex = i
+                        let finalStatus = result
                         translationGroup.enter()
                         DispatchQueue.global(qos: .utility).async {
                             self.translateFile(
@@ -268,7 +282,11 @@ class TranscriptionEngine: ObservableObject {
                                 }
                             )
                             DispatchQueue.main.async {
-                                onFileUpdate(fileIndex, .completed(lang: lang), nil)
+                                if case .completed(let l) = finalStatus {
+                                    onFileUpdate(fileIndex, .completed(lang: l), nil)
+                                } else {
+                                    onFileUpdate(fileIndex, .completed(lang: lang), nil)
+                                }
                             }
                             translationGroup.leave()
                         }
@@ -390,6 +408,37 @@ class TranscriptionEngine: ObservableObject {
         if !options.keepSrtFile {
             try? fm.removeItem(atPath: srtPath)
         }
+    }
+
+    /// Find the language of an existing srt file or subtitle track for a file
+    private func findExistingSrtLanguage(file: FileItem) -> String? {
+        let url = file.url
+        let dir = url.deletingLastPathComponent().path
+        let nameNoExt = url.deletingPathExtension().lastPathComponent
+        let fm = FileManager.default
+
+        // Check srt files: "name.ja.srt" → "ja"
+        if let contents = try? fm.contentsOfDirectory(atPath: dir) {
+            for f in contents where f.hasPrefix(nameNoExt) && f.hasSuffix(".srt") {
+                let middle = f.dropFirst(nameNoExt.count + 1).dropLast(4) // remove "name." and ".srt"
+                if !middle.isEmpty && middle.count <= 3 {
+                    return String(middle)
+                }
+            }
+        }
+
+        // Check video subtitle tracks
+        let tracks = getExistingSubtitleLanguages(url: url)
+        // Convert ISO 639-2 back to 639-1
+        let reverseMap = langMap.reduce(into: [String: String]()) { $0[$1.value] = $1.key }
+        for track in tracks {
+            if let code2 = reverseMap[track] {
+                return code2
+            }
+            return track // use as-is if no reverse mapping
+        }
+
+        return nil
     }
 
     private func countSubtitleTracks(url: URL) -> Int {
