@@ -692,14 +692,20 @@ struct ContentView: View {
             claudeApiKey: claudeApiKey,
             openaiApiKey: openaiApiKey
         )
-        engine.process(getFiles: { self.files }, options: options) { index, status, elapsed in
+        engine.process(getFiles: { self.files }, options: options, onFileUpdate: { index, status, elapsed in
             if index < files.count {
                 files[index].status = status
                 if let elapsed = elapsed {
                     files[index].elapsedTime = elapsed
                 }
             }
-        }
+        }, onTranslationComplete: { index, lang in
+            if index < files.count {
+                if !files[index].translatedLangs.contains(lang) {
+                    files[index].translatedLangs.append(lang)
+                }
+            }
+        })
     }
 }
 
@@ -876,6 +882,15 @@ struct FileRowView: View {
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1)
                             .background(.blue.opacity(0.1))
+                            .clipShape(Capsule())
+                    }
+
+                    ForEach(file.translatedLangs, id: \.self) { lang in
+                        Text(lang.uppercased())
+                            .font(.caption.bold())
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(.purple.opacity(0.1))
                             .clipShape(Capsule())
                     }
 

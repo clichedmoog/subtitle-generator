@@ -169,7 +169,8 @@ class TranscriptionEngine: ObservableObject {
     func process(
         getFiles: @escaping () -> [FileItem],
         options: Options,
-        onFileUpdate: @escaping (Int, FileStatus, TimeInterval?) -> Void
+        onFileUpdate: @escaping (Int, FileStatus, TimeInterval?) -> Void,
+        onTranslationComplete: @escaping (Int, String) -> Void
     ) {
         shouldCancel = false
 
@@ -254,12 +255,18 @@ class TranscriptionEngine: ObservableObject {
                             self.translateFile(
                                 file: fileForTranslation,
                                 language: lang,
-                                options: options
-                            ) { progress in
-                                DispatchQueue.main.async {
-                                    onFileUpdate(fileIndex, .translating(lang: progress), nil)
+                                options: options,
+                                onStatusUpdate: { progress in
+                                    DispatchQueue.main.async {
+                                        onFileUpdate(fileIndex, .translating(lang: progress), nil)
+                                    }
+                                },
+                                onLangComplete: { completedLang in
+                                    DispatchQueue.main.async {
+                                        onTranslationComplete(fileIndex, completedLang)
+                                    }
                                 }
-                            }
+                            )
                             DispatchQueue.main.async {
                                 onFileUpdate(fileIndex, .completed(lang: lang), nil)
                             }
@@ -290,24 +297,41 @@ class TranscriptionEngine: ObservableObject {
     }
 
     /// Translate a file's SRT in the background. Returns updated status.
-    private func translateFile(file: FileItem, language: String, options: Options, onStatusUpdate: @escaping (String) -> Void) {
+    private func translateFile(
+        file: FileItem,
+        language: String,
+        options: Options,
+        onStatusUpdate: @escaping (String) -> Void,
+        onLangComplete: @escaping (String) -> Void
+    ) {
         let url = file.url
         let dir = url.deletingLastPathComponent().path
         let nameNoExt = url.deletingPathExtension().lastPathComponent
         let fm = FileManager.default
+        let ffmpeg = findBinary("ffmpeg")
 
-        // Find the SRT file
         let srtPath = "\(dir)/\(nameNoExt).\(language).srt"
         guard let srtContent = try? String(contentsOfFile: srtPath, encoding: .utf8) else {
             logDebug("Translation: SRT file not found at \(srtPath)")
             return
         }
 
-        let currentLangs = getExistingSubtitleLanguages(url: url)
+        // Check existing subtitle tracks + srt files
+        let existingTracks = getExistingSubtitleLanguages(url: url)
+        let existingSrts: Set<String> = {
+            let files = (try? fm.contentsOfDirectory(atPath: dir)) ?? []
+            return Set(files.filter { $0.hasPrefix(nameNoExt) && $0.hasSuffix(".srt") }
+                .compactMap { name -> String? in
+                    let parts = name.dropFirst(nameNoExt.count + 1).dropLast(4)  // remove "name." and ".srt"
+                    return parts.isEmpty ? nil : String(parts)
+                })
+        }()
+
         let filteredTargets = Array(options.translationTargets.filter { target in
-            let code3 = langCode3(target.rawValue)
-            if currentLangs.contains(code3) {
-                logDebug("Skipping translation to \(target.rawValue): already exists as \(code3)")
+            let code2 = target.rawValue
+            let code3 = langCode3(code2)
+            if existingTracks.contains(code3) || existingSrts.contains(code2) {
+                logDebug("Skipping translation to \(code2): already exists")
                 return false
             }
             return true
@@ -332,12 +356,55 @@ class TranscriptionEngine: ObservableObject {
         for (lang, translatedSrt) in translations {
             let translatedPath = "\(dir)/\(nameNoExt).\(lang.rawValue).srt"
             try? translatedSrt.write(toFile: translatedPath, atomically: true, encoding: .utf8)
+
+            // Embed into video if option is set
+            if options.embedSubtitle, let ffmpeg = ffmpeg {
+                let tmpOutput = "\(dir)/.\(nameNoExt)_trans_sub.\(url.pathExtension)"
+                let args = [
+                    "-y", "-i", url.path,
+                    "-i", translatedPath,
+                    "-map", "0", "-map", "1:0",
+                    "-c", "copy", "-c:s", "mov_text",
+                    "-metadata:s:s:\(self.countSubtitleTracks(url: url))", "language=\(langCode3(lang.rawValue))",
+                    tmpOutput,
+                ]
+                logDebug("Translation embed ffmpeg: \(args.joined(separator: " "))")
+                let (_, exitCode) = run(ffmpeg, arguments: args)
+                if exitCode == 0 {
+                    try? fm.removeItem(atPath: url.path)
+                    try? fm.moveItem(atPath: tmpOutput, toPath: url.path)
+                } else {
+                    try? fm.removeItem(atPath: tmpOutput)
+                }
+            }
+
+            // Clean up srt if not keeping
+            if !options.keepSrtFile {
+                try? fm.removeItem(atPath: translatedPath)
+            }
+
+            onLangComplete(lang.rawValue)
         }
 
-        // Clean up srt if not keeping
+        // Clean up source srt if not keeping
         if !options.keepSrtFile {
             try? fm.removeItem(atPath: srtPath)
         }
+    }
+
+    private func countSubtitleTracks(url: URL) -> Int {
+        guard let ffprobe = findBinary("ffprobe") else { return 0 }
+        let (output, exitCode) = run(ffprobe, arguments: [
+            "-v", "quiet",
+            "-select_streams", "s",
+            "-show_entries", "stream=index",
+            "-of", "csv=p=0",
+            url.path,
+        ])
+        guard exitCode == 0 else { return 0 }
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: "\n")
+            .filter { !$0.isEmpty }.count
     }
 
     private func transcribeFile(file: FileItem, mlxWhisper: String, ffmpeg: String?, options: Options) -> FileStatus {
