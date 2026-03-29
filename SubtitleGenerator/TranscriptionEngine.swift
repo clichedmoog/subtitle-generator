@@ -28,8 +28,12 @@ class TranscriptionEngine: ObservableObject {
     @Published var currentIndex = 0
     @Published var currentStatus = ""
     @Published var fileProgress: Double = 0 {
+        didSet { updateOverallProgress() }
+    }
+    @Published var overallProgress: Double = 0 {
         didSet { updateDockProgress() }
     }
+    var onFileProgressUpdate: ((Int, Double) -> Void)?
     @Published var eta = ""
     private var shouldCancel = false
     private let processLock = NSLock()
@@ -65,7 +69,7 @@ class TranscriptionEngine: ObservableObject {
                     self.dockProgressView = view
                     dockTile.contentView = view
                 }
-                self.dockProgressView?.progress = self.fileProgress
+                self.dockProgressView?.progress = self.overallProgress
                 dockTile.display()
             } else {
                 self.dockProgressView = nil
@@ -74,6 +78,13 @@ class TranscriptionEngine: ObservableObject {
                 dockTile.display()
             }
         }
+    }
+
+    private func updateOverallProgress() {
+        guard totalFileCount > 0 else { return }
+        let completedFiles = Double(currentIndex)
+        overallProgress = (completedFiles + fileProgress) / Double(totalFileCount)
+        onFileProgressUpdate?(currentIndex, fileProgress)
     }
 
     private func bounceIcon() {
@@ -170,6 +181,7 @@ class TranscriptionEngine: ObservableObject {
         getFiles: @escaping () -> [FileItem],
         options: Options,
         onFileUpdate: @escaping (Int, FileStatus, TimeInterval?) -> Void,
+        onFileProgress: @escaping (Int, Double) -> Void,
         onTranslationComplete: @escaping (Int, String) -> Void
     ) {
         shouldCancel = false
@@ -306,6 +318,7 @@ class TranscriptionEngine: ObservableObject {
                 self.currentStatus = self.shouldCancel ? "중단됨" : "완료"
                 self.isProcessing = false
                 self.fileProgress = 0
+                self.overallProgress = 0
                 if !self.shouldCancel {
                     self.bounceIcon()
                     self.sendCompletionNotification(getFiles: getFiles)

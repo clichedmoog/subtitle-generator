@@ -544,7 +544,7 @@ struct ContentView: View {
         HStack {
             if engine.isProcessing {
                 VStack(alignment: .leading, spacing: 4) {
-                    ProgressView(value: engine.fileProgress)
+                    ProgressView(value: engine.overallProgress)
 
                     HStack {
                         Text(engine.currentStatus)
@@ -720,12 +720,21 @@ struct ContentView: View {
             claudeApiKey: claudeApiKey,
             openaiApiKey: openaiApiKey
         )
+        engine.onFileProgressUpdate = { index, progress in
+            if index < files.count {
+                files[index].progress = progress
+            }
+        }
         engine.process(getFiles: { self.files }, options: options, onFileUpdate: { index, status, elapsed in
             if index < files.count {
                 files[index].status = status
                 if let elapsed = elapsed {
                     files[index].elapsedTime = elapsed
                 }
+            }
+        }, onFileProgress: { index, progress in
+            if index < files.count {
+                files[index].progress = progress
             }
         }, onTranslationComplete: { index, lang in
             if index < files.count {
@@ -952,8 +961,9 @@ struct FileRowView: View {
             Spacer()
 
             if case .processing = file.status {
-                ProgressView()
-                    .controlSize(.small)
+                ProgressView(value: file.progress)
+                    .frame(width: 60)
+                    .tint(.blue)
             }
             if case .translating = file.status {
                 ProgressView()
