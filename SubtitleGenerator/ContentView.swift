@@ -59,6 +59,12 @@ struct ContentView: View {
                 startProcessing()
             }
         }
+        .onDeleteCommand {
+            if !selectedFileIDs.isEmpty {
+                files.removeAll { selectedFileIDs.contains($0.id) && $0.status != .processing }
+                selectedFileIDs.removeAll()
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .stopProcessing)) { _ in
             if engine.isProcessing {
                 engine.cancel()
