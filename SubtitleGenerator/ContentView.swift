@@ -564,11 +564,9 @@ struct ContentView: View {
 
                         Spacer()
 
-                        if !engine.eta.isEmpty {
-                            Text(engine.eta + " 남음")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
+                        Text(engine.eta.isEmpty ? "--:--" : engine.eta + " 남음")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity)
