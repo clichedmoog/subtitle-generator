@@ -15,15 +15,6 @@ struct FileItem: Identifiable {
 enum FileStatus: Equatable {
     case pending, processing, skipped, completed(lang: String), failed(error: String)
 
-    static func == (lhs: FileStatus, rhs: FileStatus) -> Bool {
-        switch (lhs, rhs) {
-        case (.pending, .pending), (.processing, .processing), (.skipped, .skipped): return true
-        case (.completed(let a), .completed(let b)): return a == b
-        case (.failed(let a), .failed(let b)): return a == b
-        default: return false
-        }
-    }
-
     var icon: String {
         switch self {
         case .pending: return "circle"
@@ -161,10 +152,6 @@ enum AuthMethod: String, CaseIterable, Identifiable {
         case .claudeApiKey: return "Claude API 키"
         case .openaiApiKey: return "OpenAI API 키"
         }
-    }
-
-    var needsApiKey: Bool {
-        self != .claudeCode
     }
 }
 

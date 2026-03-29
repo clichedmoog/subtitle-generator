@@ -200,12 +200,4 @@ final class ModelTests: XCTestCase {
         XCTAssertTrue(models.allSatisfy { $0.isClaude })
     }
 
-    func testAuthMethodClaudeCodeNoKey() {
-        XCTAssertFalse(AuthMethod.claudeCode.needsApiKey)
-    }
-
-    func testAuthMethodApiKeyNeeded() {
-        XCTAssertTrue(AuthMethod.claudeApiKey.needsApiKey)
-        XCTAssertTrue(AuthMethod.openaiApiKey.needsApiKey)
-    }
 }

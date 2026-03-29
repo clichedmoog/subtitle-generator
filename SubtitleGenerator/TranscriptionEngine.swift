@@ -161,7 +161,6 @@ class TranscriptionEngine: ObservableObject {
         }
 
         let ffmpeg = findBinary("ffmpeg")
-        let delay = options.subtitleDelay
         totalFileCount = files.count
 
         DispatchQueue.main.async {
@@ -193,8 +192,7 @@ class TranscriptionEngine: ObservableObject {
                     file: file,
                     mlxWhisper: mlxWhisper,
                     ffmpeg: ffmpeg,
-                    options: options,
-                    delay: delay
+                    options: options
                 )
 
                 DispatchQueue.main.async {
@@ -214,7 +212,7 @@ class TranscriptionEngine: ObservableObject {
         }
     }
 
-    private func transcribeFile(file: FileItem, mlxWhisper: String, ffmpeg: String?, options: Options, delay: Double) -> FileStatus {
+    private func transcribeFile(file: FileItem, mlxWhisper: String, ffmpeg: String?, options: Options) -> FileStatus {
         let url = file.url
         let dir = url.deletingLastPathComponent().path
         let nameNoExt = url.deletingPathExtension().lastPathComponent
@@ -227,11 +225,10 @@ class TranscriptionEngine: ObservableObject {
             return .skipped
         }
 
-        if let contents = try? fm.contentsOfDirectory(atPath: dir) {
-            let existing = contents.first { $0.hasPrefix(nameNoExt) && $0.hasSuffix(".srt") }
-            if existing != nil {
-                return .skipped
-            }
+        let hasSrtFile = (try? fm.contentsOfDirectory(atPath: dir))?
+            .contains { $0.hasPrefix(nameNoExt) && $0.hasSuffix(".srt") } ?? false
+        if hasSrtFile {
+            return .skipped
         }
 
         let tmpDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
@@ -252,11 +249,7 @@ class TranscriptionEngine: ObservableObject {
 
             let segments = ["0,30", "30,60", "60,90", "120,150", "180,210", "300,330", "600,630", "900,930"]
             for (attempt, clip) in segments.enumerated() {
-                if let files = try? fm.contentsOfDirectory(atPath: tmpDir) {
-                    for f in files where f.hasSuffix(".json") {
-                        try? fm.removeItem(atPath: "\(tmpDir)/\(f)")
-                    }
-                }
+                clearJsonFiles(in: tmpDir)
 
                 let clipStart = clip.components(separatedBy: ",").first ?? "0"
                 if let startSec = Double(clipStart), startSec >= totalDuration {
@@ -265,7 +258,7 @@ class TranscriptionEngine: ObservableObject {
 
                 logDebug("Language detection attempt \(attempt + 1): clip \(clip)")
 
-                let (_, _) = run(mlxWhisper, arguments: [
+                _ = run(mlxWhisper, arguments: [
                     url.path,
                     "--model", options.model,
                     "--output-format", "json",
@@ -280,8 +273,7 @@ class TranscriptionEngine: ObservableObject {
                     }
                 }
 
-                let detectJsonPath = (try? fm.contentsOfDirectory(atPath: tmpDir))?.first { $0.hasSuffix(".json") }.map { "\(tmpDir)/\($0)" } ?? ""
-                if !detectJsonPath.isEmpty,
+                if let detectJsonPath = findJsonFile(in: tmpDir),
                    let jsonData = try? Data(contentsOf: URL(fileURLWithPath: detectJsonPath)),
                    let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
                    let lang = json["language"] as? String {
@@ -300,11 +292,7 @@ class TranscriptionEngine: ObservableObject {
                 return .failed(error: "감지 불가 - 언어를 지정해주세요")
             }
 
-            if let files = try? fm.contentsOfDirectory(atPath: tmpDir) {
-                for f in files where f.hasSuffix(".json") {
-                    try? fm.removeItem(atPath: "\(tmpDir)/\(f)")
-                }
-            }
+            clearJsonFiles(in: tmpDir)
             logDebug("Final detected language: \(detectedLang)")
         }
 
@@ -360,11 +348,11 @@ class TranscriptionEngine: ObservableObject {
             return .failed(error: "음성 인식 실패")
         }
 
-        let jsonPath = (try? fm.contentsOfDirectory(atPath: tmpDir))?.first { $0.hasSuffix(".json") }.map { "\(tmpDir)/\($0)" } ?? ""
-        logDebug("json path: \(jsonPath), exists: \(!jsonPath.isEmpty)")
-        guard !jsonPath.isEmpty else {
+        guard let jsonPath = findJsonFile(in: tmpDir) else {
+            logDebug("json path not found")
             return .failed(error: "JSON 파일 없음")
         }
+        logDebug("json path: \(jsonPath)")
 
         // Step 2: Parse json and generate srt
         let language = detectedLang.isEmpty ? "und" : detectedLang
@@ -388,7 +376,7 @@ class TranscriptionEngine: ObservableObject {
         }
         logDebug("Parsed \(segments.count) segments")
 
-        let srtContent = generateSrt(from: segments, delay: delay)
+        let srtContent = generateSrt(from: segments, delay: options.subtitleDelay)
         guard !srtContent.isEmpty else {
             return .failed(error: "자막 내용 없음")
         }
@@ -429,13 +417,14 @@ class TranscriptionEngine: ObservableObject {
             }
         }
 
-        // Step 4: Translate (using filteredTargets, not original targets)
-        let hasAuth: Bool
-        switch options.authMethod {
-        case .claudeCode: hasAuth = true
-        case .claudeApiKey: hasAuth = !options.claudeApiKey.isEmpty
-        case .openaiApiKey: hasAuth = !options.openaiApiKey.isEmpty
-        }
+        // Step 4: Translate
+        let hasAuth: Bool = {
+            switch options.authMethod {
+            case .claudeCode: return true
+            case .claudeApiKey: return !options.claudeApiKey.isEmpty
+            case .openaiApiKey: return !options.openaiApiKey.isEmpty
+            }
+        }()
         if !options.translationTargets.isEmpty && hasAuth {
             let currentLangs = getExistingSubtitleLanguages(url: url)
             let filteredTargets = Array(options.translationTargets.filter { target in
@@ -612,6 +601,19 @@ class TranscriptionEngine: ObservableObject {
             lines.append("")
         }
         return lines.joined(separator: "\n")
+    }
+
+    private func findJsonFile(in directory: String) -> String? {
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: directory),
+              let jsonFile = files.first(where: { $0.hasSuffix(".json") }) else { return nil }
+        return "\(directory)/\(jsonFile)"
+    }
+
+    private func clearJsonFiles(in directory: String) {
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: directory) else { return }
+        for file in files where file.hasSuffix(".json") {
+            try? FileManager.default.removeItem(atPath: "\(directory)/\(file)")
+        }
     }
 
     func formatSrtTime(_ seconds: Double) -> String {

@@ -523,15 +523,9 @@ struct ContentView: View {
             authMethod: authMethod,
             translationModel: translationModel.rawValue,
             claudeApiKey: claudeApiKey,
-
             openaiApiKey: openaiApiKey
         )
-        let result = translator.translateSrt(
-            srtContent: "1\n00:00:00,000 --> 00:00:01,000\ntest\n",
-            sourceLang: "en",
-            targetLangs: [.ko]
-        ) { _ in }
-        return !result.isEmpty
+        return translator.verifyAuth()
     }
 
     private func startProcessing() {
@@ -546,7 +540,6 @@ struct ContentView: View {
             authMethod: authMethod,
             translationModel: translationModel.rawValue,
             claudeApiKey: claudeApiKey,
-
             openaiApiKey: openaiApiKey
         )
         engine.process(files: files, options: options) { index, status in
@@ -650,9 +643,6 @@ class ToolChecker: ObservableObject {
 
             DispatchQueue.main.async {
                 self.tools[index].status = success ? .installed : .notInstalled
-                if success {
-                    self.objectWillChange.send()
-                }
             }
         }
     }
