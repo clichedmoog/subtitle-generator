@@ -436,9 +436,9 @@ struct ContentView: View {
         panel.canChooseDirectories = false
         panel.allowedContentTypes = [
             .mpeg4Movie, .quickTimeMovie, .movie, .audio,
-            UTType(filenameExtension: "mkv")!,
-            UTType(filenameExtension: "m4v")!,
-            UTType(filenameExtension: "m4a")!,
+            UTType(filenameExtension: "mkv") ?? .movie,
+            UTType(filenameExtension: "m4v") ?? .movie,
+            UTType(filenameExtension: "m4a") ?? .audio,
         ]
         if panel.runModal() == .OK {
             for url in panel.urls {

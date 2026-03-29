@@ -64,12 +64,23 @@ class TranslationEngine {
         }
     }
 
+    private let systemPrompt = """
+    You are a professional subtitle translator. Follow these rules strictly:
+
+    1. GLOSSARY: Before translating, identify recurring terms, names, and domain-specific words. Maintain a mental glossary and translate them consistently throughout the entire file.
+
+    2. NATURAL NUANCE: Translate with natural, conversational tone in the target language. Preserve the speaker's emotion, formality level, and personality. Do not produce stiff or literal translations.
+
+    3. CONTEXT AWARENESS: Understand the scene and situation from the dialogue flow. Use this context to choose appropriate words, honorifics, and expressions.
+
+    4. INTEGRITY: If the source subtitle contains no meaningful spoken dialogue (only silence markers, music tags, or empty lines), output an empty string. Do not fabricate translations for non-existent content.
+
+    Preserve all SRT formatting: sequence numbers, timestamps, and blank lines. Output ONLY the translated SRT content with no explanations.
+    """
+
     private func translationPrompt(targetLang: TranslationLanguage, srtContent: String) -> String {
         """
         Translate the following SRT subtitle file to \(targetLang.langName).
-        Keep the exact same SRT format: preserve all sequence numbers, timestamps, and blank lines.
-        Only translate the text content. Do not add any explanation or commentary.
-        Output ONLY the translated SRT content.
 
         \(srtContent)
         """
@@ -96,7 +107,12 @@ class TranslationEngine {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: claude)
-        process.arguments = ["-p", "--model", translationModel, prompt]
+        process.arguments = [
+            "-p",
+            "--model", translationModel,
+            "--system-prompt", systemPrompt,
+            prompt,
+        ]
 
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -158,6 +174,7 @@ class TranslationEngine {
         let body: [String: Any] = [
             "model": translationModel,
             "max_tokens": 8192,
+            "system": systemPrompt,
             "messages": [
                 ["role": "user", "content": translationPrompt(targetLang: targetLang, srtContent: srtContent)]
             ]
@@ -193,6 +210,7 @@ class TranslationEngine {
         let body: [String: Any] = [
             "model": translationModel,
             "messages": [
+                ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": translationPrompt(targetLang: targetLang, srtContent: srtContent)]
             ]
         ]
