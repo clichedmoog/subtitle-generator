@@ -91,6 +91,7 @@ class TranscriptionEngine: ObservableObject {
     private func bounceIcon() {
         DispatchQueue.main.async {
             NSApp.requestUserAttention(.criticalRequest)
+            NSSound(named: .init("Glass"))?.play()
         }
     }
 
