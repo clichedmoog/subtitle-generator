@@ -394,32 +394,21 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(nonAuto.first, .ko)
     }
 
-    func testSensitivityNoSpeechOrder() {
-        XCTAssertLessThan(Sensitivity.sensitive.noSpeechThreshold, Sensitivity.normal.noSpeechThreshold)
-        XCTAssertLessThan(Sensitivity.normal.noSpeechThreshold, Sensitivity.accurate.noSpeechThreshold)
-    }
-
-    func testSensitivityLogprobOrder() {
-        // More negative = more permissive (sensitive), less negative = stricter (accurate)
-        XCTAssertLessThan(Sensitivity.sensitive.logprobThreshold, Sensitivity.normal.logprobThreshold)
-        XCTAssertLessThan(Sensitivity.normal.logprobThreshold, Sensitivity.accurate.logprobThreshold)
-    }
-
-    func testSensitivityCompressionOrder() {
-        // Higher = more permissive (sensitive)
-        XCTAssertGreaterThan(Sensitivity.sensitive.compressionRatioThreshold, Sensitivity.normal.compressionRatioThreshold)
-        XCTAssertGreaterThan(Sensitivity.normal.compressionRatioThreshold, Sensitivity.accurate.compressionRatioThreshold)
-    }
-
-    func testSensitivityBestOf() {
-        XCTAssertGreaterThan(Sensitivity.sensitive.bestOf, Sensitivity.normal.bestOf)
-        XCTAssertGreaterThan(Sensitivity.accurate.bestOf, Sensitivity.normal.bestOf)
-    }
-
-    func testSensitivityAllDisablePreviousText() {
+    func testSensitivityCommonValues() {
+        // All sensitivities share the same base values
         for sens in Sensitivity.allCases {
+            XCTAssertEqual(sens.noSpeechThreshold, 0.4)
+            XCTAssertEqual(sens.logprobThreshold, -1.0)
+            XCTAssertEqual(sens.compressionRatioThreshold, 2.8)
+            XCTAssertEqual(sens.bestOf, 3)
             XCTAssertFalse(sens.conditionOnPreviousText)
         }
+    }
+
+    func testSensitivityHallucinationOrder() {
+        // Higher = more permissive (sensitive catches more)
+        XCTAssertGreaterThan(Sensitivity.sensitive.hallucinationSilenceThreshold, Sensitivity.normal.hallucinationSilenceThreshold)
+        XCTAssertGreaterThan(Sensitivity.normal.hallucinationSilenceThreshold, Sensitivity.accurate.hallucinationSilenceThreshold)
     }
 
     func testDelayOrder() {

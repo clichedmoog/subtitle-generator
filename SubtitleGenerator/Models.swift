@@ -171,53 +171,24 @@ enum Sensitivity: String, CaseIterable, Identifiable {
         switch self {
         case .sensitive: return "민감"
         case .normal: return "보통"
-        case .accurate: return "정확 (느림)"
+        case .accurate: return "정확"
         }
     }
 
-    var noSpeechThreshold: Double {
-        switch self {
-        case .sensitive: return 0.3
-        case .normal: return 0.5
-        case .accurate: return 0.7
-        }
-    }
-
-    var logprobThreshold: Double {
-        switch self {
-        case .sensitive: return -1.5
-        case .normal: return -1.0
-        case .accurate: return -0.5
-        }
-    }
-
-    var compressionRatioThreshold: Double {
-        switch self {
-        case .sensitive: return 2.6
-        case .normal: return 2.4
-        case .accurate: return 2.0
-        }
-    }
+    var noSpeechThreshold: Double { 0.4 }
+    var logprobThreshold: Double { -1.0 }
+    var compressionRatioThreshold: Double { 2.8 }
 
     var hallucinationSilenceThreshold: Double {
         switch self {
-        case .sensitive: return 0.1   // minimal — catch nearly everything
-        case .normal: return 1.0
-        case .accurate: return 0.5
+        case .sensitive: return 3.0
+        case .normal: return 2.0
+        case .accurate: return 1.0
         }
     }
 
-    var conditionOnPreviousText: Bool {
-        return false  // always off — prevents hallucination propagation, post-processing handles consistency
-    }
-
-    var bestOf: Int {
-        switch self {
-        case .sensitive: return 7
-        case .normal: return 5
-        case .accurate: return 10
-        }
-    }
+    var conditionOnPreviousText: Bool { false }
+    var bestOf: Int { 3 }
 }
 
 enum AuthMethod: String, CaseIterable, Identifiable {
