@@ -47,7 +47,7 @@ class TranscriptionEngine: ObservableObject {
         var embedSubtitle: Bool
         var keepSrtFile: Bool
         var subtitleDelay: Double
-        var noSpeechThreshold: Double
+        var sensitivity: Sensitivity
         var language: String
         var translationTargets: Set<TranslationLanguage>
         var authMethod: AuthMethod
@@ -286,45 +286,80 @@ class TranscriptionEngine: ObservableObject {
                 self.fileProgress = 0
             }
 
-            let segments = ["0,30", "30,60", "60,90", "120,150", "180,210", "300,330", "600,630", "900,930"]
-            for (attempt, clip) in segments.enumerated() {
-                clearJsonFiles(in: tmpDir)
+            // Progressive sampling: wide → narrow → fine
+            let stages: [[Double]] = [
+                [0.10, 0.50, 0.90],                        // Stage 1: wide (3)
+                [0.30, 0.70],                               // Stage 2: mid (2)
+                [0.20, 0.40, 0.60, 0.80],                  // Stage 3: fill (4)
+                [0.05, 0.15, 0.25, 0.35, 0.45,             // Stage 4: fine (9)
+                 0.55, 0.65, 0.75, 0.85, 0.95],
+            ]
 
-                let clipStart = clip.components(separatedBy: ",").first ?? "0"
-                if let startSec = Double(clipStart), startSec >= totalDuration {
-                    break
-                }
+            var attemptCount = 0
+            var triedPoints = Set<Int>()  // track tried percentages to avoid duplicates
 
-                logDebug("Language detection attempt \(attempt + 1): clip \(clip)")
+            for (stage, points) in stages.enumerated() {
+                if commonLangs.contains(detectedLang) { break }
 
-                _ = run(mlxWhisper, arguments: [
-                    url.path,
-                    "--model", options.model,
-                    "--output-format", "json",
-                    "--output-dir", tmpDir,
-                    "--clip-timestamps", clip,
-                ], environment: ["PYTHONUNBUFFERED": "1"]) { line in
-                    if line.contains("Detected language:") {
-                        let lang = line.components(separatedBy: "Detected language:").last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                        DispatchQueue.main.async {
-                            self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) 언어 감지: \(lang) (\(attempt + 1)차)"
+                for pct in points {
+                    let pctInt = Int(pct * 100)
+                    guard !triedPoints.contains(pctInt) else { continue }
+                    triedPoints.insert(pctInt)
+
+                    let start = floor(totalDuration * pct)
+                    let end = min(start + 30, totalDuration)
+                    guard end - start >= 5 else { continue }
+
+                    attemptCount += 1
+                    clearJsonFiles(in: tmpDir)
+
+                    let clipStr = "\(Int(start)),\(Int(end))"
+                    logDebug("Language detection stage \(stage + 1), attempt \(attemptCount): \(clipStr) (\(pctInt)%)")
+
+                    DispatchQueue.main.async {
+                        self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) 언어 감지 중... (\(pctInt)%)"
+                    }
+
+                    _ = run(mlxWhisper, arguments: [
+                        url.path,
+                        "--model", options.model,
+                        "--output-format", "json",
+                        "--output-dir", tmpDir,
+                        "--clip-timestamps", clipStr,
+                    ], environment: ["PYTHONUNBUFFERED": "1"]) { line in
+                        if line.contains("Detected language:") {
+                            let lang = line.components(separatedBy: "Detected language:").last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                            DispatchQueue.main.async {
+                                self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) 언어 감지: \(lang) (\(pctInt)%)"
+                            }
                         }
                     }
-                }
 
-                if let detectJsonPath = findJsonFile(in: tmpDir),
-                   let jsonData = try? Data(contentsOf: URL(fileURLWithPath: detectJsonPath)),
-                   let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                   let lang = json["language"] as? String {
-                    detectedLang = lang
-                    logDebug("Detected: \(lang) (attempt \(attempt + 1))")
+                    if let detectJsonPath = findJsonFile(in: tmpDir),
+                       let jsonData = try? Data(contentsOf: URL(fileURLWithPath: detectJsonPath)),
+                       let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                       let lang = json["language"] as? String {
 
-                    if commonLangs.contains(lang) {
-                        break
+                        let segs = json["segments"] as? [[String: Any]] ?? []
+                        let avgNoSpeech = segs.compactMap { $0["no_speech_prob"] as? Double }
+                            .reduce(0, +) / max(Double(segs.count), 1)
+
+                        if avgNoSpeech > 0.7 {
+                            logDebug("  no_speech_prob=\(String(format: "%.2f", avgNoSpeech)), skipping (no speech)")
+                            continue
+                        }
+
+                        detectedLang = lang
+                        logDebug("  detected: \(lang), no_speech=\(String(format: "%.2f", avgNoSpeech))")
+
+                        if commonLangs.contains(lang) {
+                            break
+                        }
+                        logDebug("  uncommon language, continuing...")
                     }
-                    logDebug("Uncommon language '\(lang)', retrying with next segment...")
                 }
             }
+            logDebug("Language detection finished after \(attemptCount) attempts")
 
             if !commonLangs.contains(detectedLang) {
                 // Retry with system language
@@ -348,21 +383,25 @@ class TranscriptionEngine: ObservableObject {
             self.fileProgress = 0
         }
 
+        let sens = options.sensitivity
         var whisperArgs = [
             url.path,
             "--model", options.model,
             "--output-format", "json",
             "--output-dir", tmpDir,
-            "--condition-on-previous-text", "True",
+            "--condition-on-previous-text", sens.conditionOnPreviousText ? "True" : "False",
             "--word-timestamps", "True",
             "--max-line-width", "20",
             "--max-line-count", "1",
-            "--hallucination-silence-threshold", "2.0",
-            "--logprob-threshold", "-0.8",
-            "--compression-ratio-threshold", "1.6",
+            "--logprob-threshold", String(sens.logprobThreshold),
+            "--compression-ratio-threshold", String(sens.compressionRatioThreshold),
             "--suppress-tokens", "",
-            "--no-speech-threshold", String(options.noSpeechThreshold),
+            "--no-speech-threshold", String(sens.noSpeechThreshold),
+            "--best-of", String(sens.bestOf),
         ]
+        if sens.hallucinationSilenceThreshold > 0 {
+            whisperArgs += ["--hallucination-silence-threshold", String(sens.hallucinationSilenceThreshold)]
+        }
         if !detectedLang.isEmpty {
             whisperArgs += ["--language", detectedLang]
         }

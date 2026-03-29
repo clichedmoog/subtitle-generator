@@ -164,15 +164,55 @@ enum Sensitivity: String, CaseIterable, Identifiable {
         switch self {
         case .sensitive: return "민감"
         case .normal: return "보통"
-        case .accurate: return "정확"
+        case .accurate: return "정확 (느림)"
         }
     }
 
     var noSpeechThreshold: Double {
         switch self {
-        case .sensitive: return 0.35
+        case .sensitive: return 0.3
         case .normal: return 0.5
-        case .accurate: return 0.72
+        case .accurate: return 0.7
+        }
+    }
+
+    var logprobThreshold: Double {
+        switch self {
+        case .sensitive: return -2.0
+        case .normal: return -1.0
+        case .accurate: return -0.5
+        }
+    }
+
+    var compressionRatioThreshold: Double {
+        switch self {
+        case .sensitive: return 2.8
+        case .normal: return 2.4
+        case .accurate: return 2.0
+        }
+    }
+
+    var hallucinationSilenceThreshold: Double {
+        switch self {
+        case .sensitive: return 0     // disabled — catch everything
+        case .normal: return 1.0
+        case .accurate: return 0.5
+        }
+    }
+
+    var conditionOnPreviousText: Bool {
+        switch self {
+        case .sensitive: return true
+        case .normal: return true
+        case .accurate: return false  // prevent error propagation
+        }
+    }
+
+    var bestOf: Int {
+        switch self {
+        case .sensitive: return 7
+        case .normal: return 5
+        case .accurate: return 10
         }
     }
 }

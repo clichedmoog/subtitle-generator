@@ -684,7 +684,7 @@ struct ContentView: View {
             embedSubtitle: outputMode == .embedInVideo,
             keepSrtFile: outputMode == .srtOnly,
             subtitleDelay: subtitleDelay.seconds,
-            noSpeechThreshold: sensitivity.noSpeechThreshold,
+            sensitivity: sensitivity,
             language: language.rawValue,
             translationTargets: selectedTranslations,
             authMethod: authMethod,

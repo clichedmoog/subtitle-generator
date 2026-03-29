@@ -286,9 +286,31 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(nonAuto.first, .ko)
     }
 
-    func testSensitivityOrder() {
+    func testSensitivityNoSpeechOrder() {
         XCTAssertLessThan(Sensitivity.sensitive.noSpeechThreshold, Sensitivity.normal.noSpeechThreshold)
         XCTAssertLessThan(Sensitivity.normal.noSpeechThreshold, Sensitivity.accurate.noSpeechThreshold)
+    }
+
+    func testSensitivityLogprobOrder() {
+        // More negative = more permissive (sensitive), less negative = stricter (accurate)
+        XCTAssertLessThan(Sensitivity.sensitive.logprobThreshold, Sensitivity.normal.logprobThreshold)
+        XCTAssertLessThan(Sensitivity.normal.logprobThreshold, Sensitivity.accurate.logprobThreshold)
+    }
+
+    func testSensitivityCompressionOrder() {
+        // Higher = more permissive (sensitive)
+        XCTAssertGreaterThan(Sensitivity.sensitive.compressionRatioThreshold, Sensitivity.normal.compressionRatioThreshold)
+        XCTAssertGreaterThan(Sensitivity.normal.compressionRatioThreshold, Sensitivity.accurate.compressionRatioThreshold)
+    }
+
+    func testSensitivityBestOf() {
+        XCTAssertGreaterThan(Sensitivity.sensitive.bestOf, Sensitivity.normal.bestOf)
+        XCTAssertGreaterThan(Sensitivity.accurate.bestOf, Sensitivity.normal.bestOf)
+    }
+
+    func testSensitivityAccurateDisablesPreviousText() {
+        XCTAssertFalse(Sensitivity.accurate.conditionOnPreviousText)
+        XCTAssertTrue(Sensitivity.normal.conditionOnPreviousText)
     }
 
     func testDelayOrder() {
