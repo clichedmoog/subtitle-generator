@@ -67,8 +67,8 @@ enum WhisperModel: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .largev3: return "Large v3 (최고 품질, 추천)"
-        case .largev3turbo: return "Large v3 Turbo (빠름, 좋은 품질)"
+        case .largev3: return "Large v3 (최고 품질)"
+        case .largev3turbo: return "Large v3 Turbo (추천)"
         case .medium: return "Medium (좋은 품질)"
         case .small: return "Small (균형)"
         case .base: return "Base (빠름)"

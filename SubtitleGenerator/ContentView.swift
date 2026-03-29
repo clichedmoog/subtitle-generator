@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var files: [FileItem] = FileItem.loadSaved()
-    @AppStorage("selectedModel") private var selectedModel: WhisperModel = .largev3
+    @AppStorage("selectedModel") private var selectedModel: WhisperModel = .largev3turbo
     @AppStorage("outputMode") private var outputMode: OutputMode = .srtOnly
     @AppStorage("language") private var language: Language = .auto
     @AppStorage("sensitivity") private var sensitivity: Sensitivity = .normal
