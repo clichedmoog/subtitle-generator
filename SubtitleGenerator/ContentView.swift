@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var isVerifying = false
     @State private var isDownloadingModel = false
     @State private var isDropTargeted = false
+    @AppStorage("optionsExpanded") private var optionsExpanded = true
     @AppStorage("subtitleDelay") private var subtitleDelay: SubtitleDelay = .normal
     @StateObject private var toolChecker = ToolChecker()
     @StateObject private var engine = TranscriptionEngine()
@@ -281,7 +282,7 @@ struct ContentView: View {
     // MARK: - Options
 
     private var optionsSection: some View {
-        DisclosureGroup("옵션") {
+        DisclosureGroup("옵션", isExpanded: $optionsExpanded) {
             HStack {
                 Spacer()
                 Button("옵션 초기화") {
