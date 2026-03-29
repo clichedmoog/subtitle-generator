@@ -147,10 +147,14 @@ class TranscriptionEngine: ObservableObject {
         currentProcess?.terminate()
     }
 
-    func process(files: [FileItem], options: Options, onFileUpdate: @escaping (Int, FileStatus) -> Void) {
+    func process(
+        getFiles: @escaping () -> [FileItem],
+        options: Options,
+        onFileUpdate: @escaping (Int, FileStatus) -> Void
+    ) {
         shouldCancel = false
 
-        logDebug("Starting process with \(files.count) files, model: \(options.model)")
+        logDebug("Starting process, model: \(options.model)")
         guard let mlxWhisper = findBinary("mlx_whisper") else {
             logDebug("mlx_whisper not found")
             DispatchQueue.main.async {
@@ -161,7 +165,6 @@ class TranscriptionEngine: ObservableObject {
         }
 
         let ffmpeg = findBinary("ffmpeg")
-        totalFileCount = files.count
 
         DispatchQueue.main.async {
             self.isProcessing = true
@@ -169,34 +172,48 @@ class TranscriptionEngine: ObservableObject {
         }
 
         DispatchQueue.global(qos: .userInitiated).async {
-            for (i, file) in files.enumerated() {
-                if self.shouldCancel { break }
+            var processedAny = true
 
-                switch file.status {
-                case .completed, .skipped:
-                    continue
-                default:
-                    break
+            while processedAny && !self.shouldCancel {
+                processedAny = false
+
+                var currentFiles: [FileItem] = []
+                DispatchQueue.main.sync {
+                    currentFiles = getFiles()
+                    self.totalFileCount = currentFiles.count
                 }
 
-                DispatchQueue.main.async {
-                    self.currentIndex = i
-                    self.fileProgress = 0
-                    self.eta = ""
-                    self.fileStartTime = Date()
-                    self.currentStatus = "\(i + 1)/\(self.totalFileCount) 자막 생성 중..."
-                    onFileUpdate(i, .processing)
-                }
+                for (i, file) in currentFiles.enumerated() {
+                    if self.shouldCancel { break }
 
-                let result = self.transcribeFile(
-                    file: file,
-                    mlxWhisper: mlxWhisper,
-                    ffmpeg: ffmpeg,
-                    options: options
-                )
+                    switch file.status {
+                    case .completed, .skipped, .failed, .processing:
+                        continue
+                    case .pending:
+                        break
+                    }
 
-                DispatchQueue.main.async {
-                    onFileUpdate(i, result)
+                    processedAny = true
+
+                    DispatchQueue.main.async {
+                        self.currentIndex = i
+                        self.fileProgress = 0
+                        self.eta = ""
+                        self.fileStartTime = Date()
+                        self.currentStatus = "\(i + 1)/\(self.totalFileCount) 자막 생성 중..."
+                        onFileUpdate(i, .processing)
+                    }
+
+                    let result = self.transcribeFile(
+                        file: file,
+                        mlxWhisper: mlxWhisper,
+                        ffmpeg: ffmpeg,
+                        options: options
+                    )
+
+                    DispatchQueue.main.async {
+                        onFileUpdate(i, result)
+                    }
                 }
             }
 

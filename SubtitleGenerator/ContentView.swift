@@ -233,6 +233,9 @@ struct ContentView: View {
                         files.move(fromOffsets: from, toOffset: to)
                     }
                 }
+                .onInsert(of: [.fileURL]) { index, providers in
+                    handleDrop(providers, at: index)
+                }
             }
             .listStyle(.inset)
         }
@@ -550,19 +553,22 @@ struct ContentView: View {
         }
     }
 
-    private func handleDrop(_ providers: [NSItemProvider]) {
+    private func handleDrop(_ providers: [NSItemProvider], at insertIndex: Int? = nil) {
+        var insertAt = insertIndex ?? files.count
         for provider in providers {
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { data, _ in
                 guard let data = data as? Data,
                       let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
                 let ext = url.pathExtension.lowercased()
-                let allowed = ["mp4", "mov", "mkv", "m4v", "m4a", "wav", "mp3"]
+                let allowed = ["mp4", "mov", "mkv", "m4v", "m4a", "wav", "mp3", "avi", "webm", "flv"]
                 if allowed.contains(ext) {
                     DispatchQueue.main.async {
                         if let existingIndex = files.firstIndex(where: { $0.url == url }) {
                             files[existingIndex].status = .pending
                         } else {
-                            files.append(FileItem(url: url))
+                            let safeIndex = min(insertAt, files.count)
+                            files.insert(FileItem(url: url), at: safeIndex)
+                            insertAt += 1
                         }
                     }
                 }
@@ -656,7 +662,7 @@ struct ContentView: View {
             claudeApiKey: claudeApiKey,
             openaiApiKey: openaiApiKey
         )
-        engine.process(files: files, options: options) { index, status in
+        engine.process(getFiles: { self.files }, options: options) { index, status in
             if index < files.count {
                 files[index].status = status
             }

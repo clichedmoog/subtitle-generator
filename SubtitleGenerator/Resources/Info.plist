@@ -18,6 +18,12 @@
     <string>1.0.0</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>영상 파일에서 자막을 생성하고 저장하기 위해 접근이 필요합니다.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>영상 파일에서 자막을 생성하고 저장하기 위해 접근이 필요합니다.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>영상 파일에서 자막을 생성하고 저장하기 위해 접근이 필요합니다.</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>NSHighResolutionCapable</key>

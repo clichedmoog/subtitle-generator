@@ -29,12 +29,13 @@ struct SubtitleGeneratorApp: App {
     }
 
     var body: some Scene {
-        Window("자막 생성기", id: "main") {
+        WindowGroup {
             ContentView()
         }
         .windowStyle(.titleBar)
         .defaultSize(width: 780, height: 720)
         .windowResizability(.contentSize)
+        .handlesExternalEvents(matching: ["*"])
         .commands {
             CommandGroup(replacing: .newItem) {}
         }
