@@ -2,19 +2,23 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @State private var files: [FileItem] = []
-    @State private var selectedModel: WhisperModel = .largev3
-    @State private var outputMode: OutputMode = .srtOnly
-    @State private var language: Language = .auto
-    @State private var sensitivity: Sensitivity = .normal
-    @State private var selectedTranslations: Set<TranslationLanguage> = []
-    @State private var authMethod: AuthMethod = .claudeCode
-    @State private var translationModel: TranslationModel = .claudeOpus1m
-    @State private var claudeApiKey: String = ""
-    @State private var openaiApiKey: String = ""
+    @State private var files: [FileItem] = FileItem.loadSaved()
+    @AppStorage("selectedModel") private var selectedModel: WhisperModel = .largev3
+    @AppStorage("outputMode") private var outputMode: OutputMode = .srtOnly
+    @AppStorage("language") private var language: Language = .auto
+    @AppStorage("sensitivity") private var sensitivity: Sensitivity = .normal
+    @State private var selectedTranslations: Set<TranslationLanguage> = {
+        guard let data = UserDefaults.standard.data(forKey: "selectedTranslations"),
+              let raw = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return Set(raw.compactMap { TranslationLanguage(rawValue: $0) })
+    }()
+    @AppStorage("authMethod") private var authMethod: AuthMethod = .claudeCode
+    @AppStorage("translationModel") private var translationModel: TranslationModel = .claudeOpus1m
+    @AppStorage("claudeApiKey") private var claudeApiKey: String = ""
+    @AppStorage("openaiApiKey") private var openaiApiKey: String = ""
     @State private var isAuthVerified = false
     @State private var isVerifying = false
-    @State private var subtitleDelay: SubtitleDelay = .normal
+    @AppStorage("subtitleDelay") private var subtitleDelay: SubtitleDelay = .normal
     @StateObject private var toolChecker = ToolChecker()
     @StateObject private var engine = TranscriptionEngine()
 
@@ -42,6 +46,15 @@ struct ContentView: View {
         .frame(width: 780, height: toolChecker.allInstalled ? 720 : 820)
         .onAppear {
             toolChecker.checkAll()
+        }
+        .onChange(of: files) { _, newValue in
+            FileItem.save(newValue)
+        }
+        .onChange(of: selectedTranslations) { _, newValue in
+            let raw = newValue.map { $0.rawValue }
+            if let data = try? JSONEncoder().encode(raw) {
+                UserDefaults.standard.set(data, forKey: "selectedTranslations")
+            }
         }
     }
 
@@ -204,6 +217,11 @@ struct ContentView: View {
                         files.remove(atOffsets: indexSet)
                     }
                 }
+                .onMove { from, to in
+                    if !engine.isProcessing {
+                        files.move(fromOffsets: from, toOffset: to)
+                    }
+                }
             }
             .listStyle(.inset)
         }
@@ -217,6 +235,16 @@ struct ContentView: View {
 
     private var optionsSection: some View {
         DisclosureGroup("옵션") {
+            HStack {
+                Spacer()
+                Button("옵션 초기화") {
+                    resetOptions()
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+                .foregroundStyle(.red)
+                .disabled(engine.isProcessing)
+            }
             HStack(alignment: .top, spacing: 0) {
                 // Left: 자막 생성 옵션
                 VStack(alignment: .leading, spacing: 12) {
@@ -526,6 +554,20 @@ struct ContentView: View {
             openaiApiKey: openaiApiKey
         )
         return translator.verifyAuth()
+    }
+
+    private func resetOptions() {
+        selectedModel = .largev3
+        outputMode = .srtOnly
+        language = .auto
+        sensitivity = .normal
+        subtitleDelay = .normal
+        selectedTranslations = []
+        authMethod = .claudeCode
+        translationModel = .claudeOpus1m
+        claudeApiKey = ""
+        openaiApiKey = ""
+        isAuthVerified = false
     }
 
     private func startProcessing() {

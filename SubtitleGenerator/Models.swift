@@ -1,6 +1,10 @@
 import SwiftUI
 
-struct FileItem: Identifiable {
+struct FileItem: Identifiable, Equatable {
+    static func == (lhs: FileItem, rhs: FileItem) -> Bool {
+        lhs.id == rhs.id && lhs.url == rhs.url && lhs.status == rhs.status
+    }
+
     let id = UUID()
     let url: URL
     var status: FileStatus = .pending
@@ -9,6 +13,20 @@ struct FileItem: Identifiable {
     var size: String {
         let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    static func save(_ files: [FileItem]) {
+        let paths = files.map { $0.url.path }
+        UserDefaults.standard.set(paths, forKey: "savedFiles")
+    }
+
+    static func loadSaved() -> [FileItem] {
+        guard let paths = UserDefaults.standard.stringArray(forKey: "savedFiles") else { return [] }
+        return paths.compactMap { path in
+            let url = URL(fileURLWithPath: path)
+            guard FileManager.default.fileExists(atPath: path) else { return nil }
+            return FileItem(url: url)
+        }
     }
 }
 
@@ -235,14 +253,10 @@ enum TranslationLanguage: String, CaseIterable, Identifiable {
     }
 }
 
-enum SubtitleDelay: Double, CaseIterable, Identifiable {
-    case immediate = 0.0
-    case quick = 0.3
-    case normal = 0.5
-    case slow = 1.0
-    case verySlow = 1.5
+enum SubtitleDelay: String, CaseIterable, Identifiable {
+    case immediate, quick, normal, slow, verySlow
 
-    var id: Double { rawValue }
+    var id: String { rawValue }
 
     var label: String {
         switch self {
@@ -254,5 +268,13 @@ enum SubtitleDelay: Double, CaseIterable, Identifiable {
         }
     }
 
-    var seconds: Double { rawValue }
+    var seconds: Double {
+        switch self {
+        case .immediate: return 0.0
+        case .quick: return 0.3
+        case .normal: return 0.5
+        case .slow: return 1.0
+        case .verySlow: return 1.5
+        }
+    }
 }
