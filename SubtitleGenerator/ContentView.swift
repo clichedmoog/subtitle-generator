@@ -19,6 +19,7 @@ struct ContentView: View {
     @State private var isAuthVerified = false
     @State private var isVerifying = false
     @State private var isDownloadingModel = false
+    @State private var isDropTargeted = false
     @AppStorage("subtitleDelay") private var subtitleDelay: SubtitleDelay = .normal
     @StateObject private var toolChecker = ToolChecker()
     @StateObject private var engine = TranscriptionEngine()
@@ -50,6 +51,16 @@ struct ContentView: View {
         }
         .onChange(of: files) { _, newValue in
             FileItem.save(newValue)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .startProcessing)) { _ in
+            if !engine.isProcessing && !files.isEmpty {
+                startProcessing()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .stopProcessing)) { _ in
+            if engine.isProcessing {
+                engine.cancel()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .addFilesToQueue)) { notification in
             guard let urls = notification.userInfo?["urls"] as? [URL] else { return }
@@ -147,10 +158,17 @@ struct ContentView: View {
         .background {
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
-                .foregroundStyle(.quaternary)
+                .foregroundStyle(isDropTargeted ? AnyShapeStyle(.blue) : AnyShapeStyle(.quaternary))
                 .padding(16)
         }
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(.blue.opacity(0.05))
+                    .padding(16)
+            }
+        }
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers)
             return true
         }
@@ -175,14 +193,27 @@ struct ContentView: View {
                 .disabled(engine.isProcessing)
 
                 Button {
-                    files.removeAll()
+                    for i in files.indices {
+                        if files[i].status != .processing {
+                            files[i].status = .pending
+                            files[i].elapsedTime = nil
+                        }
+                    }
+                } label: {
+                    Label("모두 초기화", systemImage: "arrow.counterclockwise")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .disabled(engine.isProcessing)
+
+                Button {
+                    files.removeAll { $0.status != .processing }
                 } label: {
                     Label("전체 삭제", systemImage: "trash")
                         .font(.caption)
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.red)
-                .disabled(engine.isProcessing)
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
@@ -212,15 +243,14 @@ struct ContentView: View {
                             } label: {
                                 Label("상태 초기화", systemImage: "arrow.counterclockwise")
                             }
+                            .disabled(file.status == .processing)
 
                             Button(role: .destructive) {
-                                if !engine.isProcessing {
-                                    files.remove(at: index)
-                                }
+                                files.remove(at: index)
                             } label: {
                                 Label("목록에서 제거", systemImage: "trash")
                             }
-                            .disabled(engine.isProcessing)
+                            .disabled(file.status == .processing)
                         }
                 }
                 .onDelete { indexSet in
@@ -662,9 +692,12 @@ struct ContentView: View {
             claudeApiKey: claudeApiKey,
             openaiApiKey: openaiApiKey
         )
-        engine.process(getFiles: { self.files }, options: options) { index, status in
+        engine.process(getFiles: { self.files }, options: options) { index, status, elapsed in
             if index < files.count {
                 files[index].status = status
+                if let elapsed = elapsed {
+                    files[index].elapsedTime = elapsed
+                }
             }
         }
     }
@@ -856,6 +889,13 @@ struct FileRowView: View {
                         Text(error)
                             .font(.caption)
                             .foregroundStyle(.red)
+                            .help(error)
+                    }
+
+                    if let elapsed = file.elapsedTime {
+                        Text(formatElapsed(elapsed))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.tertiary)
                     }
                 }
             }
@@ -868,5 +908,11 @@ struct FileRowView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private func formatElapsed(_ interval: TimeInterval) -> String {
+        let mins = Int(interval) / 60
+        let secs = Int(interval) % 60
+        return mins > 0 ? "\(mins)분 \(secs)초" : "\(secs)초"
     }
 }

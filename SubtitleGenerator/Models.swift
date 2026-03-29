@@ -2,12 +2,13 @@ import SwiftUI
 
 struct FileItem: Identifiable, Equatable {
     static func == (lhs: FileItem, rhs: FileItem) -> Bool {
-        lhs.id == rhs.id && lhs.url == rhs.url && lhs.status == rhs.status
+        lhs.id == rhs.id && lhs.url == rhs.url && lhs.status == rhs.status && lhs.elapsedTime == rhs.elapsedTime
     }
 
     let id = UUID()
     let url: URL
     var status: FileStatus = .pending
+    var elapsedTime: TimeInterval?
 
     var name: String { url.lastPathComponent }
     var size: String {

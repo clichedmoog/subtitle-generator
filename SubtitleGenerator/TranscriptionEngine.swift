@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import UserNotifications
 
 #if DEBUG
 let appLog = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop/SubtitleGenerator_debug.log")
@@ -81,6 +82,24 @@ class TranscriptionEngine: ObservableObject {
         }
     }
 
+    private func sendCompletionNotification(getFiles: @escaping () -> [FileItem]) {
+        let files = getFiles()
+        let completed = files.filter { if case .completed = $0.status { return true }; return false }.count
+        let failed = files.filter { if case .failed = $0.status { return true }; return false }.count
+        let skipped = files.filter { $0.status == .skipped }.count
+
+        let content = UNMutableNotificationContent()
+        content.title = "자막 생성 완료"
+        var body = "\(completed)개 완료"
+        if skipped > 0 { body += ", \(skipped)개 건너뜀" }
+        if failed > 0 { body += ", \(failed)개 실패" }
+        content.body = body
+        content.sound = .default
+
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
     private func findBinary(_ name: String) -> String? {
         let paths = [
             "/opt/homebrew/bin/\(name)",
@@ -150,7 +169,7 @@ class TranscriptionEngine: ObservableObject {
     func process(
         getFiles: @escaping () -> [FileItem],
         options: Options,
-        onFileUpdate: @escaping (Int, FileStatus) -> Void
+        onFileUpdate: @escaping (Int, FileStatus, TimeInterval?) -> Void
     ) {
         shouldCancel = false
 
@@ -201,18 +220,20 @@ class TranscriptionEngine: ObservableObject {
                         self.eta = ""
                         self.fileStartTime = Date()
                         self.currentStatus = "\(i + 1)/\(self.totalFileCount) 자막 생성 중..."
-                        onFileUpdate(i, .processing)
+                        onFileUpdate(i, .processing, nil)
                     }
 
+                    let fileStart = Date()
                     let result = self.transcribeFile(
                         file: file,
                         mlxWhisper: mlxWhisper,
                         ffmpeg: ffmpeg,
                         options: options
                     )
+                    let elapsed = Date().timeIntervalSince(fileStart)
 
                     DispatchQueue.main.async {
-                        onFileUpdate(i, result)
+                        onFileUpdate(i, result, elapsed)
                     }
                 }
             }
@@ -224,6 +245,7 @@ class TranscriptionEngine: ObservableObject {
                 self.fileProgress = 0
                 if !self.shouldCancel {
                     self.bounceIcon()
+                    self.sendCompletionNotification(getFiles: getFiles)
                 }
             }
         }
@@ -305,8 +327,15 @@ class TranscriptionEngine: ObservableObject {
             }
 
             if !commonLangs.contains(detectedLang) {
-                logDebug("All attempts returned uncommon language '\(detectedLang)', skipping")
-                return .failed(error: "감지 불가 - 언어를 지정해주세요")
+                // Retry with system language
+                let systemLang = String(Locale.current.language.languageCode?.identifier.prefix(2) ?? "")
+                if commonLangs.contains(systemLang) {
+                    logDebug("Falling back to system language: \(systemLang)")
+                    detectedLang = systemLang
+                } else {
+                    logDebug("All attempts returned uncommon language '\(detectedLang)', skipping")
+                    return .failed(error: "감지 불가 - 언어를 지정해주세요")
+                }
             }
 
             clearJsonFiles(in: tmpDir)

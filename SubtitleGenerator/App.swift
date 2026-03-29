@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UserNotifications
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -17,6 +18,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension Notification.Name {
     static let addFilesToQueue = Notification.Name("addFilesToQueue")
+    static let startProcessing = Notification.Name("startProcessing")
+    static let stopProcessing = Notification.Name("stopProcessing")
 }
 
 @main
@@ -26,6 +29,7 @@ struct SubtitleGeneratorApp: App {
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     var body: some Scene {
@@ -38,6 +42,17 @@ struct SubtitleGeneratorApp: App {
         .handlesExternalEvents(matching: ["*"])
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .toolbar) {
+                Button("자막 생성 시작") {
+                    NotificationCenter.default.post(name: .startProcessing, object: nil)
+                }
+                .keyboardShortcut("r", modifiers: .command)
+
+                Button("중단") {
+                    NotificationCenter.default.post(name: .stopProcessing, object: nil)
+                }
+                .keyboardShortcut(".", modifiers: .command)
+            }
         }
     }
 }
