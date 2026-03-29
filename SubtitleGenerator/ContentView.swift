@@ -166,8 +166,38 @@ struct ContentView: View {
             Divider()
 
             List {
-                ForEach(files) { file in
+                ForEach(Array(files.enumerated()), id: \.element.id) { index, file in
                     FileRowView(file: file)
+                        .contextMenu {
+                            Button {
+                                NSWorkspace.shared.activateFileViewerSelecting([file.url])
+                            } label: {
+                                Label("파인더에서 보기", systemImage: "folder")
+                            }
+
+                            Button {
+                                NSWorkspace.shared.open(file.url)
+                            } label: {
+                                Label("기본 앱으로 열기", systemImage: "play.circle")
+                            }
+
+                            Divider()
+
+                            Button {
+                                files[index].status = .pending
+                            } label: {
+                                Label("상태 초기화", systemImage: "arrow.counterclockwise")
+                            }
+
+                            Button(role: .destructive) {
+                                if !engine.isProcessing {
+                                    files.remove(at: index)
+                                }
+                            } label: {
+                                Label("목록에서 제거", systemImage: "trash")
+                            }
+                            .disabled(engine.isProcessing)
+                        }
                 }
                 .onDelete { indexSet in
                     if !engine.isProcessing {

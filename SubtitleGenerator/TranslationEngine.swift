@@ -73,7 +73,7 @@ class TranslationEngine {
 
     3. CONTEXT AWARENESS: Understand the scene and situation from the dialogue flow. Use this context to choose appropriate words, honorifics, and expressions.
 
-    4. INTEGRITY: If the source subtitle contains no meaningful spoken dialogue (only silence markers, music tags, or empty lines), output an empty string. Do not fabricate translations for non-existent content.
+    4. INTEGRITY: Translate all content faithfully, including interjections, sound effects, and emotional expressions. These carry meaning and must be conveyed in the target language.
 
     Preserve all SRT formatting: sequence numbers, timestamps, and blank lines. Output ONLY the translated SRT content with no explanations.
     """
