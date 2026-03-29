@@ -192,7 +192,6 @@ struct ContentView: View {
                         .font(.caption)
                 }
                 .buttonStyle(.borderless)
-                .disabled(engine.isProcessing)
 
                 Button {
                     for i in files.indices {
@@ -217,6 +216,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.red)
+                .disabled(engine.isProcessing)
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
@@ -411,6 +411,7 @@ struct ContentView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .disabled(engine.isProcessing)
 
                 Divider()
                     .padding(.horizontal, 8)
@@ -523,8 +524,8 @@ struct ContentView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .disabled(engine.isProcessing)
             }
-            .disabled(engine.isProcessing)
             .padding(.top, 8)
         }
         .font(.headline)
