@@ -791,9 +791,10 @@ class TranscriptionEngine: ObservableObject {
 
         guard cleaned.count >= 4 else { return false }
 
-        // Single character repeat: ああああ
+        // Few unique chars in long text: うっうううう..., ああああ
         let uniqueChars = Set(cleaned)
         if uniqueChars.count == 1 { return true }
+        if uniqueChars.count <= 3 && cleaned.count >= 10 { return true }
 
         // Short pattern repeat (1~10 chars): ダメダメダメ, はぁっはぁっはぁっ
         for len in 1...min(10, cleaned.count / 2) {
