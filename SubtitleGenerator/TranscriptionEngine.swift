@@ -43,6 +43,7 @@ class TranscriptionEngine: ObservableObject {
         set { processLock.lock(); defer { processLock.unlock() }; _currentProcess = newValue }
     }
     private var fileStartTime: Date = Date()
+    private var totalStartTime: Date = Date()
     private var totalFileCount = 0
     private var dockProgressView: DockProgressView?
 
@@ -201,6 +202,7 @@ class TranscriptionEngine: ObservableObject {
         DispatchQueue.main.async {
             self.isProcessing = true
             self.currentIndex = 0
+            self.totalStartTime = Date()
         }
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -634,7 +636,7 @@ class TranscriptionEngine: ObservableObject {
                     if totalDuration > 0 {
                         self.fileProgress = min(endSeconds / totalDuration, 1.0)
                     }
-                    self.eta = self.calculateEta()
+                    self.eta = self.calculateOverallEta()
                     self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) \(Int(self.fileProgress * 100))% \(text)"
                 }
             } else if line.contains("Detected language:") {
@@ -754,19 +756,31 @@ class TranscriptionEngine: ObservableObject {
         return .completed(lang: language)
     }
 
-    private func calculateEta() -> String {
+    /// File-level ETA based on current file progress
+    func calculateFileEta() -> String {
         guard fileProgress > 0.05 else { return "" }
         let elapsed = Date().timeIntervalSince(fileStartTime)
-        let totalEstimated = elapsed / fileProgress
-        let remaining = totalEstimated - elapsed
+        let remaining = (elapsed / fileProgress) - elapsed
         guard remaining > 0 else { return "" }
+        return formatEta(remaining)
+    }
 
+    /// Overall ETA based on total progress across all files
+    func calculateOverallEta() -> String {
+        guard overallProgress > 0.02 else { return "" }
+        let elapsed = Date().timeIntervalSince(totalStartTime)
+        let remaining = (elapsed / overallProgress) - elapsed
+        guard remaining > 0 else { return "" }
+        return formatEta(remaining)
+    }
+
+    private func formatEta(_ remaining: Double) -> String {
         let mins = Int(remaining) / 60
         let secs = Int(remaining) % 60
         if mins > 0 {
-            return "약 \(mins)분 \(secs)초 남음"
+            return "약 \(mins)분 \(secs)초"
         } else {
-            return "약 \(secs)초 남음"
+            return "약 \(secs)초"
         }
     }
 

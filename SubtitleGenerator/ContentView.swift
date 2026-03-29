@@ -225,7 +225,10 @@ struct ContentView: View {
 
             List(selection: $selectedFileIDs) {
                 ForEach(Array(files.enumerated()), id: \.element.id) { index, file in
-                    FileRowView(file: file)
+                    FileRowView(
+                        file: file,
+                        fileEtaText: file.status == .processing ? engine.calculateFileEta() : ""
+                    )
                         .tag(file.id)
                         .contextMenu {
                             if selectedFileIDs.count > 1 && selectedFileIDs.contains(file.id) {
@@ -555,7 +558,7 @@ struct ContentView: View {
                         Spacer()
 
                         if !engine.eta.isEmpty {
-                            Text(engine.eta)
+                            Text(engine.eta + " 남음")
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
@@ -896,6 +899,7 @@ struct ToolRowView: View {
 
 struct FileRowView: View {
     let file: FileItem
+    var fileEtaText: String = ""
 
     var body: some View {
         HStack(spacing: 12) {
@@ -961,9 +965,14 @@ struct FileRowView: View {
             Spacer()
 
             if case .processing = file.status {
-                ProgressView(value: file.progress)
-                    .frame(width: 60)
-                    .tint(.blue)
+                VStack(alignment: .trailing, spacing: 2) {
+                    ProgressView(value: file.progress)
+                        .frame(width: 60)
+                        .tint(.blue)
+                    Text(fileEtaText.isEmpty ? "--:--" : fileEtaText)
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
             }
             if case .translating = file.status {
                 ProgressView()
