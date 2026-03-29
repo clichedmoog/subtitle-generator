@@ -221,7 +221,7 @@ struct ContentView: View {
                         .font(.caption)
                 }
                 .buttonStyle(.borderless)
-                .foregroundStyle(engine.isProcessing ? .gray : .red)
+                .foregroundStyle(.red.opacity(engine.isProcessing ? 0.3 : 1.0))
                 .disabled(engine.isProcessing)
             }
             .padding(.horizontal)
@@ -323,7 +323,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderless)
                 .font(.caption)
-                .foregroundStyle(engine.isProcessing ? .gray : .red)
+                .foregroundStyle(.red.opacity(engine.isProcessing ? 0.3 : 1.0))
                 .disabled(engine.isProcessing)
             }
             HStack(alignment: .top, spacing: 0) {
