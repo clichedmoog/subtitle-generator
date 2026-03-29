@@ -879,6 +879,12 @@ struct FileRowView: View {
                             .clipShape(Capsule())
                     }
 
+                    if case .translating(let lang) = file.status {
+                        Text("번역 중 (\(lang.uppercased()))")
+                            .font(.caption)
+                            .foregroundStyle(.purple)
+                    }
+
                     if case .skipped = file.status {
                         Text("이미 존재")
                             .font(.caption)
@@ -905,6 +911,11 @@ struct FileRowView: View {
             if case .processing = file.status {
                 ProgressView()
                     .controlSize(.small)
+            }
+            if case .translating = file.status {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.purple)
             }
         }
         .padding(.vertical, 4)

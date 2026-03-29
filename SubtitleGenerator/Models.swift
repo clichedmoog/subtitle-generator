@@ -32,12 +32,14 @@ struct FileItem: Identifiable, Equatable {
 }
 
 enum FileStatus: Equatable {
-    case pending, processing, skipped, completed(lang: String), failed(error: String)
+    case pending, processing, translating(lang: String), skipped
+    case completed(lang: String), failed(error: String)
 
     var icon: String {
         switch self {
         case .pending: return "circle"
         case .processing: return "progress.indicator"
+        case .translating: return "text.bubble"
         case .skipped: return "forward.circle.fill"
         case .completed: return "checkmark.circle.fill"
         case .failed: return "xmark.circle.fill"
@@ -48,6 +50,7 @@ enum FileStatus: Equatable {
         switch self {
         case .pending: return .secondary
         case .processing: return .blue
+        case .translating: return .purple
         case .skipped: return .orange
         case .completed: return .green
         case .failed: return .red

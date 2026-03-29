@@ -192,6 +192,7 @@ class TranscriptionEngine: ObservableObject {
 
         DispatchQueue.global(qos: .userInitiated).async {
             var processedAny = true
+            let translationGroup = DispatchGroup()
 
             while processedAny && !self.shouldCancel {
                 processedAny = false
@@ -201,12 +202,20 @@ class TranscriptionEngine: ObservableObject {
                     currentFiles = getFiles()
                     self.totalFileCount = currentFiles.count
                 }
+                let hasAuth: Bool = {
+                    switch options.authMethod {
+                    case .claudeCode: return true
+                    case .claudeApiKey: return !options.claudeApiKey.isEmpty
+                    case .openaiApiKey: return !options.openaiApiKey.isEmpty
+                    }
+                }()
+                let needsTranslation = !options.translationTargets.isEmpty && hasAuth
 
                 for (i, file) in currentFiles.enumerated() {
                     if self.shouldCancel { break }
 
                     switch file.status {
-                    case .completed, .skipped, .failed, .processing:
+                    case .completed, .skipped, .failed, .processing, .translating:
                         continue
                     case .pending:
                         break
@@ -232,11 +241,40 @@ class TranscriptionEngine: ObservableObject {
                     )
                     let elapsed = Date().timeIntervalSince(fileStart)
 
-                    DispatchQueue.main.async {
-                        onFileUpdate(i, result, elapsed)
+                    // Launch translation in background if transcription succeeded
+                    if needsTranslation, case .completed(let lang) = result {
+                        DispatchQueue.main.async {
+                            onFileUpdate(i, .translating(lang: lang), elapsed)
+                        }
+
+                        let fileForTranslation = file
+                        let fileIndex = i
+                        translationGroup.enter()
+                        DispatchQueue.global(qos: .utility).async {
+                            self.translateFile(
+                                file: fileForTranslation,
+                                language: lang,
+                                options: options
+                            ) { progress in
+                                DispatchQueue.main.async {
+                                    onFileUpdate(fileIndex, .translating(lang: progress), nil)
+                                }
+                            }
+                            DispatchQueue.main.async {
+                                onFileUpdate(fileIndex, .completed(lang: lang), nil)
+                            }
+                            translationGroup.leave()
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            onFileUpdate(i, result, elapsed)
+                        }
                     }
                 }
             }
+
+            // Wait for all background translations to finish
+            translationGroup.wait()
 
             DispatchQueue.main.async {
                 self.currentIndex = self.totalFileCount
@@ -248,6 +286,57 @@ class TranscriptionEngine: ObservableObject {
                     self.sendCompletionNotification(getFiles: getFiles)
                 }
             }
+        }
+    }
+
+    /// Translate a file's SRT in the background. Returns updated status.
+    private func translateFile(file: FileItem, language: String, options: Options, onStatusUpdate: @escaping (String) -> Void) {
+        let url = file.url
+        let dir = url.deletingLastPathComponent().path
+        let nameNoExt = url.deletingPathExtension().lastPathComponent
+        let fm = FileManager.default
+
+        // Find the SRT file
+        let srtPath = "\(dir)/\(nameNoExt).\(language).srt"
+        guard let srtContent = try? String(contentsOfFile: srtPath, encoding: .utf8) else {
+            logDebug("Translation: SRT file not found at \(srtPath)")
+            return
+        }
+
+        let currentLangs = getExistingSubtitleLanguages(url: url)
+        let filteredTargets = Array(options.translationTargets.filter { target in
+            let code3 = langCode3(target.rawValue)
+            if currentLangs.contains(code3) {
+                logDebug("Skipping translation to \(target.rawValue): already exists as \(code3)")
+                return false
+            }
+            return true
+        })
+
+        guard !filteredTargets.isEmpty else {
+            logDebug("All translation targets already exist")
+            return
+        }
+
+        onStatusUpdate("번역 중 (\(filteredTargets.count)개 언어)...")
+
+        let translator = TranslationEngine(authMethod: options.authMethod, translationModel: options.translationModel, claudeApiKey: options.claudeApiKey, openaiApiKey: options.openaiApiKey)
+        let translations = translator.translateSrt(
+            srtContent: srtContent,
+            sourceLang: language,
+            targetLangs: filteredTargets
+        ) { progress in
+            onStatusUpdate(progress)
+        }
+
+        for (lang, translatedSrt) in translations {
+            let translatedPath = "\(dir)/\(nameNoExt).\(lang.rawValue).srt"
+            try? translatedSrt.write(toFile: translatedPath, atomically: true, encoding: .utf8)
+        }
+
+        // Clean up srt if not keeping
+        if !options.keepSrtFile {
+            try? fm.removeItem(atPath: srtPath)
         }
     }
 
@@ -520,7 +609,7 @@ class TranscriptionEngine: ObservableObject {
             }
         }
 
-        // Step 4: Translate
+        // Step 4: Remove srt if not keeping (and no translation needed)
         let hasAuth: Bool = {
             switch options.authMethod {
             case .claudeCode: return true
@@ -528,42 +617,8 @@ class TranscriptionEngine: ObservableObject {
             case .openaiApiKey: return !options.openaiApiKey.isEmpty
             }
         }()
-        if !options.translationTargets.isEmpty && hasAuth {
-            let currentLangs = getExistingSubtitleLanguages(url: url)
-            let filteredTargets = Array(options.translationTargets.filter { target in
-                let code3 = langCode3(target.rawValue)
-                if currentLangs.contains(code3) {
-                    logDebug("Skipping translation to \(target.rawValue): already exists as \(code3)")
-                    return false
-                }
-                return true
-            })
-
-            if !filteredTargets.isEmpty {
-                DispatchQueue.main.async {
-                    self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) 번역 중 (\(filteredTargets.count)개 언어)..."
-                }
-
-                let translator = TranslationEngine(authMethod: options.authMethod, translationModel: options.translationModel, claudeApiKey: options.claudeApiKey, openaiApiKey: options.openaiApiKey)
-                let translations = translator.translateSrt(
-                    srtContent: srtContent,
-                    sourceLang: language,
-                    targetLangs: filteredTargets
-                ) { progress in
-                    DispatchQueue.main.async {
-                        self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) \(progress)"
-                    }
-                }
-
-                for (lang, translatedSrt) in translations {
-                    let translatedPath = "\(dir)/\(nameNoExt).\(lang.rawValue).srt"
-                    try? translatedSrt.write(toFile: translatedPath, atomically: true, encoding: .utf8)
-                }
-            }
-        }
-
-        // Step 5: Remove srt if not keeping
-        if !options.keepSrtFile {
+        let needsTranslation = !options.translationTargets.isEmpty && hasAuth
+        if !options.keepSrtFile && !needsTranslation {
             try? fm.removeItem(atPath: srtPath)
         }
 
