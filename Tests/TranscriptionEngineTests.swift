@@ -416,9 +416,10 @@ final class ModelTests: XCTestCase {
         XCTAssertGreaterThan(Sensitivity.accurate.bestOf, Sensitivity.normal.bestOf)
     }
 
-    func testSensitivityAccurateDisablesPreviousText() {
-        XCTAssertFalse(Sensitivity.accurate.conditionOnPreviousText)
-        XCTAssertTrue(Sensitivity.normal.conditionOnPreviousText)
+    func testSensitivityAllDisablePreviousText() {
+        for sens in Sensitivity.allCases {
+            XCTAssertFalse(sens.conditionOnPreviousText)
+        }
     }
 
     func testDelayOrder() {

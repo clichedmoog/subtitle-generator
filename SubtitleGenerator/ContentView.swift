@@ -197,6 +197,7 @@ struct ContentView: View {
                         if files[i].status != .processing {
                             files[i].status = .pending
                             files[i].elapsedTime = nil
+                            files[i].translatedLangs = []
                         }
                     }
                 } label: {
@@ -240,6 +241,8 @@ struct ContentView: View {
 
                             Button {
                                 files[index].status = .pending
+                                files[index].elapsedTime = nil
+                                files[index].translatedLangs = []
                             } label: {
                                 Label("상태 초기화", systemImage: "arrow.counterclockwise")
                             }

@@ -185,7 +185,7 @@ enum Sensitivity: String, CaseIterable, Identifiable {
 
     var logprobThreshold: Double {
         switch self {
-        case .sensitive: return -2.0
+        case .sensitive: return -1.5
         case .normal: return -1.0
         case .accurate: return -0.5
         }
@@ -193,7 +193,7 @@ enum Sensitivity: String, CaseIterable, Identifiable {
 
     var compressionRatioThreshold: Double {
         switch self {
-        case .sensitive: return 2.8
+        case .sensitive: return 2.6
         case .normal: return 2.4
         case .accurate: return 2.0
         }
@@ -201,18 +201,14 @@ enum Sensitivity: String, CaseIterable, Identifiable {
 
     var hallucinationSilenceThreshold: Double {
         switch self {
-        case .sensitive: return 0     // disabled — catch everything
+        case .sensitive: return 0.1   // minimal — catch nearly everything
         case .normal: return 1.0
         case .accurate: return 0.5
         }
     }
 
     var conditionOnPreviousText: Bool {
-        switch self {
-        case .sensitive: return true
-        case .normal: return true
-        case .accurate: return false  // prevent error propagation
-        }
+        return false  // always off — prevents hallucination propagation, post-processing handles consistency
     }
 
     var bestOf: Int {
