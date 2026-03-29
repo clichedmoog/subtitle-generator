@@ -70,11 +70,32 @@ Binary lookup searches: `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`
 
 - **Process output buffering**: Python buffers stdout when piped. `PYTHONUNBUFFERED=1` environment variable is required for real-time progress updates.
 
-- **Repetitive text filtering**: `isRepetitive()` catches single-char repeats (`ああああ`), pattern repeats (`ダメダメダメ`), and comma-separated repeats (`うっ、うっ、うっ`). Requires exact divisibility check to avoid false positives.
+- **Repetitive text filtering**: `isRepetitive()` catches single-char repeats, few-unique-char long text (≤4 chars, ≥12 length), pattern repeats (1-10 chars), and comma-separated repeats (70%+ majority). Brackets `「」` are stripped before checking.
+
+- **6-layer post-processing**: min duration (0.3s), repetitive patterns, punctuation-only, hallucination blacklist, over-dense text (>25 chars/sec), end-of-video hallucination (last 30s + high no_speech_prob).
+
+- **NaN in JSON**: mlx-whisper sometimes produces NaN/Infinity in `no_speech_prob` or `compression_ratio`. JSONSerialization rejects these — sanitize before parsing.
+
+- **Whisper compression-ratio-threshold**: Only triggers retry, does NOT delete segments. Post-processing is the only reliable filter for repetitive hallucinations.
 
 - **Dynamic queue**: `process()` takes a `getFiles` closure instead of a file array, re-checking for new pending files after each completion. Files added during processing are automatically picked up.
 
+- **Translation retry**: Up to 3 attempts with SRT validation. Checks for timestamp patterns and AI refusal patterns.
+
+- **Parallel transcription + translation**: Translation runs on `.utility` queue while next file transcribes on `.userInitiated`. GPU (whisper) and network (API) don't compete.
+
 - **Debug logging**: Gated with `#if DEBUG`. Writes to `~/Desktop/SubtitleGenerator_debug.log`.
+
+- **UI disabled state**: Use `.opacity(0.3)` instead of gray for disabled buttons. Preserves color identity.
+
+## Distribution
+
+```bash
+# Build DMG
+./scripts/build-dmg.sh
+```
+
+TODO: ffmpeg embedding in app bundle, code signing, notarization. See memory/distribution_plan.md.
 
 ## Commit Convention
 
