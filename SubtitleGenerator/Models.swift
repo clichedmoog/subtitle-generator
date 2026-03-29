@@ -56,21 +56,23 @@ enum FileStatus: Equatable {
 }
 
 enum WhisperModel: String, CaseIterable, Identifiable {
-    case tiny = "mlx-community/whisper-tiny-mlx"
-    case base = "mlx-community/whisper-base-mlx"
-    case small = "mlx-community/whisper-small-mlx"
-    case medium = "mlx-community/whisper-medium-mlx"
     case largev3 = "mlx-community/whisper-large-v3-mlx"
+    case largev3turbo = "mlx-community/whisper-large-v3-turbo"
+    case medium = "mlx-community/whisper-medium-mlx"
+    case small = "mlx-community/whisper-small-mlx"
+    case base = "mlx-community/whisper-base-mlx"
+    case tiny = "mlx-community/whisper-tiny-mlx"
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .tiny: return "Tiny (빠름, 낮은 품질)"
-        case .base: return "Base (빠름)"
-        case .small: return "Small (균형)"
-        case .medium: return "Medium (좋은 품질)"
         case .largev3: return "Large v3 (최고 품질, 추천)"
+        case .largev3turbo: return "Large v3 Turbo (빠름, 좋은 품질)"
+        case .medium: return "Medium (좋은 품질)"
+        case .small: return "Small (균형)"
+        case .base: return "Base (빠름)"
+        case .tiny: return "Tiny (가장 빠름, 낮은 품질)"
         }
     }
 
@@ -85,11 +87,12 @@ enum WhisperModel: String, CaseIterable, Identifiable {
 
     var sizeLabel: String {
         switch self {
-        case .tiny: return "~150MB"
-        case .base: return "~290MB"
-        case .small: return "~950MB"
-        case .medium: return "~1.5GB"
         case .largev3: return "~2.9GB"
+        case .largev3turbo: return "~1.6GB"
+        case .medium: return "~1.5GB"
+        case .small: return "~950MB"
+        case .base: return "~290MB"
+        case .tiny: return "~150MB"
         }
     }
 }
