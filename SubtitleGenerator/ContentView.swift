@@ -51,6 +51,16 @@ struct ContentView: View {
         .onChange(of: files) { _, newValue in
             FileItem.save(newValue)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .addFilesToQueue)) { notification in
+            guard let urls = notification.userInfo?["urls"] as? [URL] else { return }
+            for url in urls {
+                if let existingIndex = files.firstIndex(where: { $0.url == url }) {
+                    files[existingIndex].status = .pending
+                } else {
+                    files.append(FileItem(url: url))
+                }
+            }
+        }
         .onChange(of: selectedTranslations) { _, newValue in
             let raw = newValue.map { $0.rawValue }
             if let data = try? JSONEncoder().encode(raw) {
