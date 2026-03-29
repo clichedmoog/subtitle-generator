@@ -25,14 +25,29 @@ class TranslationEngine {
             DispatchQueue.global(qos: .userInitiated).async {
                 onProgress("\(lang.label) 번역 중...")
 
-                let translated: String?
-                switch self.authMethod {
-                case .claudeCode:
-                    translated = self.callClaudeCodeCLI(srtContent: srtContent, targetLang: lang)
-                case .claudeApiKey:
-                    translated = self.callClaudeAPI(srtContent: srtContent, targetLang: lang)
-                case .openaiApiKey:
-                    translated = self.callOpenAIAPI(srtContent: srtContent, targetLang: lang)
+                var translated: String?
+                let maxRetries = 3
+
+                for attempt in 1...maxRetries {
+                    let raw: String?
+                    switch self.authMethod {
+                    case .claudeCode:
+                        raw = self.callClaudeCodeCLI(srtContent: srtContent, targetLang: lang)
+                    case .claudeApiKey:
+                        raw = self.callClaudeAPI(srtContent: srtContent, targetLang: lang)
+                    case .openaiApiKey:
+                        raw = self.callOpenAIAPI(srtContent: srtContent, targetLang: lang)
+                    }
+
+                    if let raw = raw, self.isValidSrt(raw) {
+                        translated = raw
+                        break
+                    } else {
+                        logDebug("Translation to \(lang.rawValue) attempt \(attempt)/\(maxRetries) failed or invalid")
+                        if attempt < maxRetries {
+                            onProgress("\(lang.label) 재시도 (\(attempt + 1)/\(maxRetries))...")
+                        }
+                    }
                 }
 
                 if let translated = translated {
@@ -41,7 +56,7 @@ class TranslationEngine {
                     lock.unlock()
                     onProgress("\(lang.label) 번역 완료")
                 } else {
-                    onProgress("\(lang.label) 번역 실패")
+                    onProgress("\(lang.label) 번역 실패 (3회 시도)")
                 }
 
                 group.leave()
@@ -50,6 +65,32 @@ class TranslationEngine {
 
         group.wait()
         return results
+    }
+
+    /// Validate that the response looks like actual SRT content, not an AI refusal/error
+    func isValidSrt(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        // Must contain SRT timestamp pattern
+        let hasTimestamp = trimmed.range(of: #"\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}"#, options: .regularExpression) != nil
+        guard hasTimestamp else { return false }
+
+        // Must start with a sequence number
+        let firstLine = trimmed.components(separatedBy: "\n").first ?? ""
+        guard Int(firstLine.trimmingCharacters(in: .whitespaces)) != nil else { return false }
+
+        // Should not contain common refusal patterns
+        let refusalPatterns = [
+            "申し訳", "sorry", "cannot", "できません", "도와드릴 수 없",
+            "inappropriate", "不適切", "성인", "adult content",
+        ]
+        let lower = trimmed.lowercased()
+        for pattern in refusalPatterns {
+            if lower.contains(pattern.lowercased()) { return false }
+        }
+
+        return true
     }
 
     /// Check if authentication is working
