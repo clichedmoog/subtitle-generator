@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var files: [FileItem] = FileItem.loadSaved()
+    @State private var selectedFileIDs: Set<UUID> = []
     @AppStorage("selectedModel") private var selectedModel: WhisperModel = .largev3turbo
     @AppStorage("outputMode") private var outputMode: OutputMode = .srtOnly
     @AppStorage("language") private var language: Language = .auto
@@ -222,45 +223,68 @@ struct ContentView: View {
 
             Divider()
 
-            List {
+            List(selection: $selectedFileIDs) {
                 ForEach(Array(files.enumerated()), id: \.element.id) { index, file in
                     FileRowView(file: file)
+                        .tag(file.id)
                         .contextMenu {
-                            Button {
-                                NSWorkspace.shared.activateFileViewerSelecting([file.url])
-                            } label: {
-                                Label("파인더에서 보기", systemImage: "folder")
-                            }
+                            if selectedFileIDs.count > 1 && selectedFileIDs.contains(file.id) {
+                                // Multi-selection context menu
+                                Button {
+                                    for id in selectedFileIDs {
+                                        if let i = files.firstIndex(where: { $0.id == id }), files[i].status != .processing {
+                                            files[i].status = .pending
+                                            files[i].elapsedTime = nil
+                                            files[i].translatedLangs = []
+                                        }
+                                    }
+                                    selectedFileIDs.removeAll()
+                                } label: {
+                                    Label("선택 항목 초기화 (\(selectedFileIDs.count)개)", systemImage: "arrow.counterclockwise")
+                                }
 
-                            Button {
-                                NSWorkspace.shared.open(file.url)
-                            } label: {
-                                Label("기본 앱으로 열기", systemImage: "play.circle")
-                            }
+                                Button(role: .destructive) {
+                                    files.removeAll { selectedFileIDs.contains($0.id) && $0.status != .processing }
+                                    selectedFileIDs.removeAll()
+                                } label: {
+                                    Label("선택 항목 삭제 (\(selectedFileIDs.count)개)", systemImage: "trash")
+                                }
+                            } else {
+                                // Single item context menu
+                                Button {
+                                    NSWorkspace.shared.activateFileViewerSelecting([file.url])
+                                } label: {
+                                    Label("파인더에서 보기", systemImage: "folder")
+                                }
 
-                            Divider()
+                                Button {
+                                    NSWorkspace.shared.open(file.url)
+                                } label: {
+                                    Label("기본 앱으로 열기", systemImage: "play.circle")
+                                }
 
-                            Button {
-                                files[index].status = .pending
-                                files[index].elapsedTime = nil
-                                files[index].translatedLangs = []
-                            } label: {
-                                Label("상태 초기화", systemImage: "arrow.counterclockwise")
-                            }
-                            .disabled(file.status == .processing)
+                                Divider()
 
-                            Button(role: .destructive) {
-                                files.remove(at: index)
-                            } label: {
-                                Label("목록에서 제거", systemImage: "trash")
+                                Button {
+                                    files[index].status = .pending
+                                    files[index].elapsedTime = nil
+                                    files[index].translatedLangs = []
+                                } label: {
+                                    Label("상태 초기화", systemImage: "arrow.counterclockwise")
+                                }
+                                .disabled(file.status == .processing)
+
+                                Button(role: .destructive) {
+                                    files.remove(at: index)
+                                } label: {
+                                    Label("목록에서 제거", systemImage: "trash")
+                                }
+                                .disabled(file.status == .processing)
                             }
-                            .disabled(file.status == .processing)
                         }
                 }
                 .onDelete { indexSet in
-                    if !engine.isProcessing {
-                        files.remove(atOffsets: indexSet)
-                    }
+                    files.remove(atOffsets: indexSet)
                 }
                 .onMove { from, to in
                     if !engine.isProcessing {
