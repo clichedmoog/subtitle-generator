@@ -18,6 +18,7 @@ struct ContentView: View {
     @AppStorage("openaiApiKey") private var openaiApiKey: String = ""
     @State private var isAuthVerified = false
     @State private var isVerifying = false
+    @State private var isDownloadingModel = false
     @AppStorage("subtitleDelay") private var subtitleDelay: SubtitleDelay = .normal
     @StateObject private var toolChecker = ToolChecker()
     @StateObject private var engine = TranscriptionEngine()
@@ -253,13 +254,45 @@ struct ContentView: View {
                         .foregroundStyle(.primary)
 
                     optionRow("모델") {
-                        Picker("", selection: $selectedModel) {
-                            ForEach(WhisperModel.allCases) { model in
-                                Text(model.displayName).tag(model)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Picker("", selection: $selectedModel) {
+                                ForEach(WhisperModel.allCases) { model in
+                                    HStack {
+                                        Text(model.displayName)
+                                        if !model.isCached {
+                                            Text("(\(model.sizeLabel))")
+                                                .foregroundStyle(.tertiary)
+                                        }
+                                    }.tag(model)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+
+                            if !selectedModel.isCached {
+                                HStack(spacing: 4) {
+                                    if isDownloadingModel {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                        Text("다운로드 중...")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    } else {
+                                        Image(systemName: "arrow.down.circle")
+                                            .foregroundStyle(.orange)
+                                            .font(.caption)
+                                        Text("첫 사용 시 \(selectedModel.sizeLabel) 다운로드")
+                                            .font(.caption)
+                                            .foregroundStyle(.orange)
+                                        Button("미리 다운로드") {
+                                            downloadModel()
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.mini)
+                                    }
+                                }
                             }
                         }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
                     }
 
                     optionRow("출력") {
@@ -554,6 +587,35 @@ struct ContentView: View {
             openaiApiKey: openaiApiKey
         )
         return translator.verifyAuth()
+    }
+
+    private func downloadModel() {
+        isDownloadingModel = true
+        let model = selectedModel.rawValue
+        DispatchQueue.global().async {
+            // Run mlx_whisper with a tiny clip to trigger model download
+            let paths = ["/opt/homebrew/bin/mlx_whisper", "/usr/local/bin/mlx_whisper", "\(NSHomeDirectory())/.local/bin/mlx_whisper"]
+            guard let mlx = paths.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+                DispatchQueue.main.async { self.isDownloadingModel = false }
+                return
+            }
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: mlx)
+            // Use --help won't download; instead use a dummy run that will fail but download the model
+            process.arguments = ["--model", model, "--help"]
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+            // Actually just trigger the download by importing the model
+            let downloadProcess = Process()
+            downloadProcess.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            downloadProcess.arguments = ["-c", "export PATH=/opt/homebrew/bin:$HOME/.local/bin:$PATH && python3 -c \"from huggingface_hub import snapshot_download; snapshot_download('\(model)')\""]
+            downloadProcess.standardOutput = Pipe()
+            downloadProcess.standardError = Pipe()
+            try? downloadProcess.run()
+            downloadProcess.waitUntilExit()
+
+            DispatchQueue.main.async { self.isDownloadingModel = false }
+        }
     }
 
     private func resetOptions() {

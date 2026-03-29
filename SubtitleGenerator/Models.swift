@@ -72,6 +72,25 @@ enum WhisperModel: String, CaseIterable, Identifiable {
         case .largev3: return "Large v3 (최고 품질, 추천)"
         }
     }
+
+    var cacheDir: String {
+        let repo = rawValue.replacingOccurrences(of: "/", with: "--")
+        return "\(NSHomeDirectory())/.cache/huggingface/hub/models--\(repo)"
+    }
+
+    var isCached: Bool {
+        FileManager.default.fileExists(atPath: cacheDir)
+    }
+
+    var sizeLabel: String {
+        switch self {
+        case .tiny: return "~150MB"
+        case .base: return "~290MB"
+        case .small: return "~950MB"
+        case .medium: return "~1.5GB"
+        case .largev3: return "~2.9GB"
+        }
+    }
 }
 
 enum OutputMode: String, CaseIterable, Identifiable {

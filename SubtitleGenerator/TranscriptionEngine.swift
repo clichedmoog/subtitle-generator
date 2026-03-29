@@ -344,8 +344,12 @@ class TranscriptionEngine: ObservableObject {
 
         logDebug("whisper exit: \(whisperExit)")
         guard whisperExit == 0 else {
+            if shouldCancel || whisperExit == 15 {
+                logDebug("whisper cancelled by user")
+                return .pending
+            }
             logDebug("whisper failed")
-            return .failed(error: "음성 인식 실패")
+            return .failed(error: "음성 인식 실패 (exit: \(whisperExit))")
         }
 
         guard let jsonPath = findJsonFile(in: tmpDir) else {
