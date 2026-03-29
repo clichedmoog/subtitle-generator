@@ -780,32 +780,44 @@ class TranscriptionEngine: ObservableObject {
         "시청해 주셔서 감사합니다", "구독과 좋아요 부탁드립니다",
     ]
 
-    /// Detect repetitive text like "ああああ", "うっ、うっ、うっ", "ダメダメダメ"
+    /// Detect repetitive text like "ああああ", "うっ、うっ、うっ", "ダメダメダメ", "はぁっはぁっはぁっ"
     func isRepetitive(_ text: String) -> Bool {
         let cleaned = text.replacingOccurrences(of: "、", with: "")
             .replacingOccurrences(of: "。", with: "")
             .replacingOccurrences(of: "…", with: "")
             .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "「", with: "")
+            .replacingOccurrences(of: "」", with: "")
 
         guard cleaned.count >= 4 else { return false }
 
+        // Single character repeat: ああああ
         let uniqueChars = Set(cleaned)
         if uniqueChars.count == 1 { return true }
 
-        for len in 1...min(6, cleaned.count / 2) {
+        // Short pattern repeat (1~10 chars): ダメダメダメ, はぁっはぁっはぁっ
+        for len in 1...min(10, cleaned.count / 2) {
             let pattern = String(cleaned.prefix(len))
             let repeatCount = cleaned.count / len
-            guard repeatCount >= 3 && cleaned.count % len == 0 else { continue }
+            guard repeatCount >= 3 else { continue }
+            // Exact match or nearly exact (allow partial trailing)
             let repeated = String(repeating: pattern, count: repeatCount)
-            if repeated == cleaned {
+            if cleaned.hasPrefix(repeated) {
                 return true
             }
         }
 
+        // Comma-separated repeats: うっ、うっ、うっ or 「あ、いけ、いけ、いけ
         let parts = text.components(separatedBy: "、").map { $0.trimmingCharacters(in: .whitespaces) }
         if parts.count >= 3 {
-            let unique = Set(parts.filter { !$0.isEmpty })
-            if unique.count == 1 { return true }
+            let nonEmpty = parts.filter { !$0.isEmpty }
+            let unique = Set(nonEmpty)
+            // Allow 1-2 unique tokens if majority is the same
+            if unique.count <= 2 {
+                let mostCommon = unique.max(by: { a, b in nonEmpty.filter { $0 == a }.count < nonEmpty.filter { $0 == b }.count })!
+                let ratio = Double(nonEmpty.filter { $0 == mostCommon }.count) / Double(nonEmpty.count)
+                if ratio >= 0.7 { return true }
+            }
         }
 
         return false
