@@ -454,7 +454,21 @@ class TranscriptionEngine: ObservableObject {
 
         logDebug("JSON data size: \(jsonData.count)")
 
-        guard let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+        // Sanitize JSON: replace NaN/Infinity which JSONSerialization rejects but Python allows
+        let sanitizedData: Data
+        if var jsonString = String(data: jsonData, encoding: .utf8) {
+            jsonString = jsonString.replacingOccurrences(of: ": NaN", with: ": 0")
+            jsonString = jsonString.replacingOccurrences(of: ": Infinity", with: ": 0")
+            jsonString = jsonString.replacingOccurrences(of: ": -Infinity", with: ": 0")
+            jsonString = jsonString.replacingOccurrences(of: ":NaN", with: ":0")
+            jsonString = jsonString.replacingOccurrences(of: ":Infinity", with: ":0")
+            jsonString = jsonString.replacingOccurrences(of: ":-Infinity", with: ":0")
+            sanitizedData = jsonString.data(using: .utf8) ?? jsonData
+        } else {
+            sanitizedData = jsonData
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: sanitizedData) as? [String: Any] else {
             let preview = String(data: jsonData.prefix(200), encoding: .utf8) ?? "nil"
             logDebug("Failed to parse json, preview: \(preview)")
             return .failed(error: "JSON 파싱 실패")
