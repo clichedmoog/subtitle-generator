@@ -679,10 +679,20 @@ class TranscriptionEngine: ObservableObject {
 
         logDebug("JSON data size: \(jsonData.count)")
 
-        // whisper-cli JSON uses "transcription" array, not "segments"
-        guard let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+        // whisper-cli JSON uses "transcription" array
+        let json: [String: Any]
+        do {
+            guard let parsed = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+                logDebug("JSON is not a dictionary")
+                return .failed(error: "JSON 형식 오류")
+            }
+            json = parsed
+        } catch {
             let preview = String(data: jsonData.prefix(200), encoding: .utf8) ?? "nil"
-            logDebug("Failed to parse json, preview: \(preview)")
+            let tail = String(data: jsonData.suffix(100), encoding: .utf8) ?? "nil"
+            logDebug("Failed to parse json: \(error.localizedDescription)")
+            logDebug("Preview: \(preview)")
+            logDebug("Tail: \(tail)")
             return .failed(error: "JSON 파싱 실패")
         }
 
