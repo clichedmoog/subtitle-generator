@@ -679,7 +679,15 @@ class TranscriptionEngine: ObservableObject {
             return .failed(error: "SRT 파일 없음")
         }
 
-        guard let srtRaw = try? String(contentsOfFile: srtOutputPath, encoding: .utf8) else {
+        // Read SRT with UTF-8, fallback to latin1 for broken bytes
+        let srtRaw: String
+        if let s = try? String(contentsOfFile: srtOutputPath, encoding: .utf8) {
+            srtRaw = s
+        } else if let data = try? Data(contentsOf: URL(fileURLWithPath: srtOutputPath)) {
+            // Replace invalid UTF-8 bytes
+            srtRaw = String(data: data, encoding: .isoLatin1) ?? ""
+            logDebug("SRT had invalid UTF-8, fell back to latin1 (\(data.count) bytes)")
+        } else {
             logDebug("Failed to read SRT at \(srtOutputPath)")
             return .failed(error: "SRT 읽기 실패")
         }
