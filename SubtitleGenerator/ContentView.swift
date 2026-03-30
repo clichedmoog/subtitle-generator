@@ -592,7 +592,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(files.isEmpty || !toolChecker.allInstalled)
+                .disabled(files.isEmpty || !toolChecker.allInstalled || isDownloadingModel)
             }
         }
         .padding()

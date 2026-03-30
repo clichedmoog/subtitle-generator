@@ -189,6 +189,25 @@ class TranscriptionEngine: ObservableObject {
         shouldCancel = false
 
         logDebug("Starting process, model: \(options.model)")
+
+        // Check model file exists and is complete
+        let modelPath = options.model
+        guard FileManager.default.fileExists(atPath: modelPath) else {
+            DispatchQueue.main.async {
+                self.currentStatus = "모델 파일이 없습니다. 다운로드해주세요."
+                self.isProcessing = false
+            }
+            return
+        }
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: modelPath),
+           let size = attrs[.size] as? Int64, size < 10_000_000 {
+            DispatchQueue.main.async {
+                self.currentStatus = "모델 파일이 불완전합니다. 다운로드 완료를 기다려주세요."
+                self.isProcessing = false
+            }
+            return
+        }
+
         guard let whisperCli = findBinary("whisper-cli") else {
             logDebug("whisper-cli not found")
             DispatchQueue.main.async {
