@@ -665,11 +665,23 @@ class TranscriptionEngine: ObservableObject {
         let language = detectedLang.isEmpty ? "und" : detectedLang
         logDebug("Using language: \(language)")
 
-        let srtOutputPath = "\(outputBase).srt"
-        guard fm.fileExists(atPath: srtOutputPath),
-              let srtRaw = try? String(contentsOfFile: srtOutputPath, encoding: .utf8) else {
-            logDebug("SRT output not found at \(srtOutputPath)")
+        // Find SRT output - try expected path first, then search tmpDir
+        let expectedSrt = "\(outputBase).srt"
+        let srtOutputPath: String
+        if fm.fileExists(atPath: expectedSrt) {
+            srtOutputPath = expectedSrt
+        } else if let found = (try? fm.contentsOfDirectory(atPath: tmpDir))?.first(where: { $0.hasSuffix(".srt") }) {
+            srtOutputPath = "\(tmpDir)/\(found)"
+            logDebug("SRT found at alternate path: \(found)")
+        } else {
+            let tmpContents = (try? fm.contentsOfDirectory(atPath: tmpDir)) ?? []
+            logDebug("SRT not found. tmpDir contents: \(tmpContents)")
             return .failed(error: "SRT 파일 없음")
+        }
+
+        guard let srtRaw = try? String(contentsOfFile: srtOutputPath, encoding: .utf8) else {
+            logDebug("Failed to read SRT at \(srtOutputPath)")
+            return .failed(error: "SRT 읽기 실패")
         }
 
         // Parse SRT into segments
