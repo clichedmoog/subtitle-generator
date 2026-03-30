@@ -621,7 +621,6 @@ class TranscriptionEngine: ObservableObject {
             "--logprob-thold", String(sens.logprobThreshold),
             "--entropy-thold", String(sens.entropyThreshold),
             "--output-srt",
-            "--output-json",
             "-of", outputBase,
         ]
 
@@ -662,61 +661,20 @@ class TranscriptionEngine: ObservableObject {
             return .failed(error: "음성 인식 실패 (exit: \(whisperExit))")
         }
 
-        // Step 2: Read whisper-cli output and apply post-processing
+        // Step 2: Read whisper-cli SRT output and apply post-processing
         let language = detectedLang.isEmpty ? "und" : detectedLang
         logDebug("Using language: \(language)")
 
-        let jsonPath = "\(outputBase).json"
-        guard fm.fileExists(atPath: jsonPath) else {
-            logDebug("json not found at \(jsonPath)")
-            return .failed(error: "JSON 파일 없음")
+        let srtOutputPath = "\(outputBase).srt"
+        guard fm.fileExists(atPath: srtOutputPath),
+              let srtRaw = try? String(contentsOfFile: srtOutputPath, encoding: .utf8) else {
+            logDebug("SRT output not found at \(srtOutputPath)")
+            return .failed(error: "SRT 파일 없음")
         }
 
-        guard let jsonData = try? Data(contentsOf: URL(fileURLWithPath: jsonPath)) else {
-            logDebug("Failed to read json file")
-            return .failed(error: "JSON 읽기 실패")
-        }
-
-        logDebug("JSON data size: \(jsonData.count)")
-
-        // whisper-cli JSON uses "transcription" array
-        let json: [String: Any]
-        do {
-            guard let parsed = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-                logDebug("JSON is not a dictionary")
-                return .failed(error: "JSON 형식 오류")
-            }
-            json = parsed
-        } catch {
-            let preview = String(data: jsonData.prefix(200), encoding: .utf8) ?? "nil"
-            let tail = String(data: jsonData.suffix(100), encoding: .utf8) ?? "nil"
-            logDebug("Failed to parse json: \(error.localizedDescription)")
-            logDebug("Preview: \(preview)")
-            logDebug("Tail: \(tail)")
-            return .failed(error: "JSON 파싱 실패")
-        }
-
-        // whisper-cli JSON format: {"transcription": [{"timestamps": {"from": "...", "to": "..."}, "text": "..."}]}
-        let segments: [[String: Any]]
-        if let transcription = json["transcription"] as? [[String: Any]] {
-            // Convert whisper-cli format to common format
-            segments = transcription.compactMap { entry -> [String: Any]? in
-                guard let timestamps = entry["timestamps"] as? [String: String],
-                      let fromStr = timestamps["from"],
-                      let toStr = timestamps["to"],
-                      let text = entry["text"] as? String else { return nil }
-                let start = parseTimestamp(fromStr)
-                let end = parseTimestamp(toStr)
-                return ["start": start, "end": end, "text": text,
-                        "no_speech_prob": entry["no_speech_prob"] as? Double ?? 0]
-            }
-        } else if let segs = json["segments"] as? [[String: Any]] {
-            segments = segs
-        } else {
-            logDebug("No segments/transcription in json")
-            return .failed(error: "세그먼트 없음")
-        }
-        logDebug("Parsed \(segments.count) segments")
+        // Parse SRT into segments
+        let segments = parseSrtToSegments(srtRaw)
+        logDebug("Parsed \(segments.count) segments from SRT")
 
         let srtContent = generateSrt(from: segments, delay: options.subtitleDelay, totalDuration: totalDuration)
         guard !srtContent.isEmpty else {
@@ -832,7 +790,42 @@ class TranscriptionEngine: ObservableObject {
         return Double(output.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
     }
 
-    /// Parse "HH:MM:SS.mmm" timestamp from whisper-cli JSON
+    /// Parse whisper-cli SRT output into segment dictionaries
+    private func parseSrtToSegments(_ srt: String) -> [[String: Any]] {
+        var segments: [[String: Any]] = []
+        let blocks = srt.components(separatedBy: "\n\n")
+
+        for block in blocks {
+            let lines = block.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n")
+            guard lines.count >= 3,
+                  let _ = Int(lines[0].trimmingCharacters(in: .whitespaces)) else { continue }
+
+            // Parse timestamp line: "00:01:30,000 --> 00:01:35,000"
+            let timeLine = lines[1]
+            let timeParts = timeLine.components(separatedBy: " --> ")
+            guard timeParts.count == 2 else { continue }
+
+            let startStr = timeParts[0].trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
+            let endStr = timeParts[1].trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
+
+            let start = parseTimestamp(startStr)
+            let end = parseTimestamp(endStr)
+            let text = lines[2...].joined(separator: "\n").trimmingCharacters(in: .whitespaces)
+
+            guard !text.isEmpty else { continue }
+
+            segments.append([
+                "start": start,
+                "end": end,
+                "text": text,
+                "no_speech_prob": 0.0,
+            ])
+        }
+
+        return segments
+    }
+
+    /// Parse "HH:MM:SS.mmm" or "HH:MM:SS,mmm" timestamp
     private func parseTimestamp(_ str: String) -> Double {
         let parts = str.components(separatedBy: ":")
         guard parts.count == 3 else { return 0 }
