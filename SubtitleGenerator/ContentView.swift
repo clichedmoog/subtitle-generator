@@ -673,35 +673,25 @@ struct ContentView: View {
 
     private func downloadModel() {
         isDownloadingModel = true
-        let model = selectedModel.rawValue
+        let model = selectedModel
         DispatchQueue.global().async {
-            // Run mlx_whisper with a tiny clip to trigger model download
-            let paths = ["/opt/homebrew/bin/mlx_whisper", "/usr/local/bin/mlx_whisper", "\(NSHomeDirectory())/.local/bin/mlx_whisper"]
-            guard let mlx = paths.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
-                DispatchQueue.main.async { self.isDownloadingModel = false }
-                return
-            }
+            let modelDir = "\(NSHomeDirectory())/.cache/whisper-cpp"
+            try? FileManager.default.createDirectory(atPath: modelDir, withIntermediateDirectories: true)
+
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: mlx)
-            // Use --help won't download; instead use a dummy run that will fail but download the model
-            process.arguments = ["--model", model, "--help"]
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+            process.arguments = ["-L", model.downloadURL, "-o", model.modelPath]
             process.standardOutput = Pipe()
             process.standardError = Pipe()
-            // Actually just trigger the download by importing the model
-            let downloadProcess = Process()
-            downloadProcess.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            downloadProcess.arguments = ["-c", "export PATH=/opt/homebrew/bin:$HOME/.local/bin:$PATH && python3 -c \"from huggingface_hub import snapshot_download; snapshot_download('\(model)')\""]
-            downloadProcess.standardOutput = Pipe()
-            downloadProcess.standardError = Pipe()
-            try? downloadProcess.run()
-            downloadProcess.waitUntilExit()
+            try? process.run()
+            process.waitUntilExit()
 
             DispatchQueue.main.async { self.isDownloadingModel = false }
         }
     }
 
     private func resetOptions() {
-        selectedModel = .largev3
+        selectedModel = .largev3turbo
         outputMode = .srtOnly
         language = .auto
         sensitivity = .normal
@@ -716,7 +706,7 @@ struct ContentView: View {
 
     private func startProcessing() {
         let options = TranscriptionEngine.Options(
-            model: selectedModel.rawValue,
+            model: selectedModel.modelPath,
             embedSubtitle: outputMode == .embedInVideo,
             keepSrtFile: outputMode == .srtOnly,
             subtitleDelay: subtitleDelay.seconds,
@@ -795,7 +785,7 @@ class ToolChecker: ObservableObject {
 
     func checkAll() {
         tools = [
-            ToolInfo(id: "mlx_whisper", name: "mlx-whisper", description: "AI 음성인식 (Apple Silicon)", installCommand: "pipx install mlx-whisper"),
+            ToolInfo(id: "whisper-cli", name: "whisper-cpp", description: "AI 음성인식 (Metal GPU)", installCommand: "brew install whisper-cpp"),
             ToolInfo(id: "ffmpeg", name: "ffmpeg", description: "자막 트랙 내장 시 필요", installCommand: "brew install ffmpeg"),
         ]
 
@@ -815,7 +805,7 @@ class ToolChecker: ObservableObject {
         let binName: String
         switch id {
         case "ffmpeg": binName = "ffmpeg"
-        case "mlx_whisper": binName = "mlx_whisper"
+        case "whisper-cli": binName = "whisper-cli"
         default: return false
         }
         for path in paths {

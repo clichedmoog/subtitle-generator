@@ -395,20 +395,25 @@ final class ModelTests: XCTestCase {
     }
 
     func testSensitivityCommonValues() {
-        // All sensitivities share the same base values
         for sens in Sensitivity.allCases {
-            XCTAssertEqual(sens.noSpeechThreshold, 0.4)
-            XCTAssertEqual(sens.logprobThreshold, -1.0)
-            XCTAssertEqual(sens.compressionRatioThreshold, 2.8)
+            XCTAssertEqual(sens.beamSize, 3)
             XCTAssertEqual(sens.bestOf, 3)
-            XCTAssertFalse(sens.conditionOnPreviousText)
         }
     }
 
-    func testSensitivityHallucinationOrder() {
-        // Higher = more permissive (sensitive catches more)
-        XCTAssertGreaterThan(Sensitivity.sensitive.hallucinationSilenceThreshold, Sensitivity.normal.hallucinationSilenceThreshold)
-        XCTAssertGreaterThan(Sensitivity.normal.hallucinationSilenceThreshold, Sensitivity.accurate.hallucinationSilenceThreshold)
+    func testSensitivityNoSpeechOrder() {
+        XCTAssertLessThan(Sensitivity.sensitive.noSpeechThreshold, Sensitivity.normal.noSpeechThreshold)
+        XCTAssertLessThan(Sensitivity.normal.noSpeechThreshold, Sensitivity.accurate.noSpeechThreshold)
+    }
+
+    func testSensitivityLogprobOrder() {
+        XCTAssertLessThan(Sensitivity.sensitive.logprobThreshold, Sensitivity.normal.logprobThreshold)
+        XCTAssertLessThan(Sensitivity.normal.logprobThreshold, Sensitivity.accurate.logprobThreshold)
+    }
+
+    func testSensitivityEntropyOrder() {
+        XCTAssertGreaterThan(Sensitivity.sensitive.entropyThreshold, Sensitivity.normal.entropyThreshold)
+        XCTAssertGreaterThan(Sensitivity.normal.entropyThreshold, Sensitivity.accurate.entropyThreshold)
     }
 
     func testDelayOrder() {
@@ -440,9 +445,9 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(models.first, .claudeOpus1m)
     }
 
-    func testWhisperModelCacheDir() {
+    func testWhisperModelPath() {
         let model = WhisperModel.largev3
-        XCTAssertTrue(model.cacheDir.contains("mlx-community--whisper-large-v3-mlx"))
+        XCTAssertTrue(model.modelPath.contains("ggml-large-v3.bin"))
     }
 
     func testWhisperModelSizeLabel() {

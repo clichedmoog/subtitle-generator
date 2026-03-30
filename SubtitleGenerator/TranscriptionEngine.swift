@@ -189,16 +189,23 @@ class TranscriptionEngine: ObservableObject {
         shouldCancel = false
 
         logDebug("Starting process, model: \(options.model)")
-        guard let mlxWhisper = findBinary("mlx_whisper") else {
-            logDebug("mlx_whisper not found")
+        guard let whisperCli = findBinary("whisper-cli") else {
+            logDebug("whisper-cli not found")
             DispatchQueue.main.async {
-                self.currentStatus = "mlx_whisper를 찾을 수 없습니다"
+                self.currentStatus = "whisper-cli를 찾을 수 없습니다"
                 self.isProcessing = false
             }
             return
         }
-
-        let ffmpeg = findBinary("ffmpeg")
+        guard let ffmpeg = findBinary("ffmpeg") else {
+            logDebug("ffmpeg not found")
+            DispatchQueue.main.async {
+                self.currentStatus = "ffmpeg를 찾을 수 없습니다"
+                self.isProcessing = false
+            }
+            return
+        }
+        let ffmpegPath: String? = ffmpeg  // for optional usage later
 
         DispatchQueue.main.async {
             self.isProcessing = true
@@ -251,8 +258,8 @@ class TranscriptionEngine: ObservableObject {
                     let fileStart = Date()
                     let result = self.transcribeFile(
                         file: file,
-                        mlxWhisper: mlxWhisper,
-                        ffmpeg: ffmpeg,
+                        whisperCli: whisperCli,
+                        ffmpeg: ffmpegPath,
                         options: options
                     )
                     let elapsed = Date().timeIntervalSince(fileStart)
@@ -472,7 +479,7 @@ class TranscriptionEngine: ObservableObject {
             .filter { !$0.isEmpty }.count
     }
 
-    private func transcribeFile(file: FileItem, mlxWhisper: String, ffmpeg: String?, options: Options) -> FileStatus {
+    private func transcribeFile(file: FileItem, whisperCli: String, ffmpeg: String?, options: Options) -> FileStatus {
         let url = file.url
         let dir = url.deletingLastPathComponent().path
         let nameNoExt = url.deletingPathExtension().lastPathComponent
@@ -497,6 +504,25 @@ class TranscriptionEngine: ObservableObject {
 
         let totalDuration = getMediaDuration(url: url)
 
+        // Step 0: Convert to wav (whisper-cli requires wav input)
+        DispatchQueue.main.async {
+            self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) 오디오 변환 중..."
+            self.fileProgress = 0
+        }
+
+        let wavPath = "\(tmpDir)/audio.wav"
+        if let ffmpeg = ffmpeg {
+            let (_, wavExit) = run(ffmpeg, arguments: [
+                "-y", "-i", url.path,
+                "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+                wavPath,
+            ])
+            guard wavExit == 0 else {
+                logDebug("wav conversion failed")
+                return .failed(error: "오디오 변환 실패")
+            }
+        }
+
         // Step 1a: Detect language if auto
         let commonLangs: Set<String> = ["ja", "ko", "en", "zh", "fr", "de", "es", "it", "pt", "ru",
                                          "ar", "hi", "th", "vi", "id", "tr", "pl", "nl"]
@@ -507,17 +533,16 @@ class TranscriptionEngine: ObservableObject {
                 self.fileProgress = 0
             }
 
-            // Progressive sampling: wide → narrow → fine
+            // Use whisper-cli --detect-language with clips
             let stages: [[Double]] = [
-                [0.10, 0.50, 0.90],                        // Stage 1: wide (3)
-                [0.30, 0.70],                               // Stage 2: mid (2)
-                [0.20, 0.40, 0.60, 0.80],                  // Stage 3: fill (4)
-                [0.05, 0.15, 0.25, 0.35, 0.45,             // Stage 4: fine (9)
-                 0.55, 0.65, 0.75, 0.85, 0.95],
+                [0.10, 0.50, 0.90],
+                [0.30, 0.70],
+                [0.20, 0.40, 0.60, 0.80],
+                [0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95],
             ]
 
             var attemptCount = 0
-            var triedPoints = Set<Int>()  // track tried percentages to avoid duplicates
+            var triedPoints = Set<Int>()
 
             for (stage, points) in stages.enumerated() {
                 if commonLangs.contains(detectedLang) { break }
@@ -527,53 +552,35 @@ class TranscriptionEngine: ObservableObject {
                     guard !triedPoints.contains(pctInt) else { continue }
                     triedPoints.insert(pctInt)
 
-                    let start = floor(totalDuration * pct)
-                    let end = min(start + 30, totalDuration)
-                    guard end - start >= 5 else { continue }
+                    let startMs = Int(totalDuration * pct * 1000)
+                    let durationMs = min(30000, Int((totalDuration - totalDuration * pct) * 1000))
+                    guard durationMs >= 5000 else { continue }
 
                     attemptCount += 1
-                    clearJsonFiles(in: tmpDir)
-
-                    let clipStr = "\(Int(start)),\(Int(end))"
-                    logDebug("Language detection stage \(stage + 1), attempt \(attemptCount): \(clipStr) (\(pctInt)%)")
+                    logDebug("Language detection stage \(stage + 1), attempt \(attemptCount): \(pctInt)%")
 
                     DispatchQueue.main.async {
                         self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) 언어 감지 중... (\(pctInt)%)"
                     }
 
-                    _ = run(mlxWhisper, arguments: [
-                        url.path,
-                        "--model", options.model,
-                        "--output-format", "json",
-                        "--output-dir", tmpDir,
-                        "--clip-timestamps", clipStr,
-                    ], environment: ["PYTHONUNBUFFERED": "1"]) { line in
-                        if line.contains("Detected language:") {
-                            let lang = line.components(separatedBy: "Detected language:").last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let (detectOutput, _) = run(whisperCli, arguments: [
+                        "-m", options.model,
+                        "-f", wavPath,
+                        "--offset-t", String(startMs),
+                        "--duration", String(durationMs),
+                        "-dl",  // detect-language mode
+                    ])
+
+                    // Parse: "whisper_full: auto-detected language: ja (p = 0.95)"
+                    if let match = detectOutput.range(of: #"auto-detected language: (\w+)"#, options: .regularExpression) {
+                        let langStr = String(detectOutput[match]).components(separatedBy: ": ").last ?? ""
+                        detectedLang = langStr
+                        logDebug("  detected: \(langStr)")
+
+                        if commonLangs.contains(langStr) {
                             DispatchQueue.main.async {
-                                self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) 언어 감지: \(lang) (\(pctInt)%)"
+                                self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) 언어 감지: \(langStr) (\(pctInt)%)"
                             }
-                        }
-                    }
-
-                    if let detectJsonPath = findJsonFile(in: tmpDir),
-                       let jsonData = try? Data(contentsOf: URL(fileURLWithPath: detectJsonPath)),
-                       let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                       let lang = json["language"] as? String {
-
-                        let segs = json["segments"] as? [[String: Any]] ?? []
-                        let avgNoSpeech = segs.compactMap { $0["no_speech_prob"] as? Double }
-                            .reduce(0, +) / max(Double(segs.count), 1)
-
-                        if avgNoSpeech > 0.7 {
-                            logDebug("  no_speech_prob=\(String(format: "%.2f", avgNoSpeech)), skipping (no speech)")
-                            continue
-                        }
-
-                        detectedLang = lang
-                        logDebug("  detected: \(lang), no_speech=\(String(format: "%.2f", avgNoSpeech))")
-
-                        if commonLangs.contains(lang) {
                             break
                         }
                         logDebug("  uncommon language, continuing...")
@@ -583,7 +590,6 @@ class TranscriptionEngine: ObservableObject {
             logDebug("Language detection finished after \(attemptCount) attempts")
 
             if !commonLangs.contains(detectedLang) {
-                // Retry with system language
                 let systemLang = String(Locale.current.language.languageCode?.identifier.prefix(2) ?? "")
                 if commonLangs.contains(systemLang) {
                     logDebug("Falling back to system language: \(systemLang)")
@@ -593,57 +599,55 @@ class TranscriptionEngine: ObservableObject {
                     return .failed(error: "감지 불가 - 언어를 지정해주세요")
                 }
             }
-
-            clearJsonFiles(in: tmpDir)
             logDebug("Final detected language: \(detectedLang)")
         }
 
-        // Step 1b: Generate json with mlx_whisper (language locked)
+        // Step 1b: Transcribe with whisper-cli
         DispatchQueue.main.async {
             self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) 음성 인식 중..."
             self.fileProgress = 0
         }
 
         let sens = options.sensitivity
+        let outputBase = "\(tmpDir)/output"
         var whisperArgs = [
-            url.path,
-            "--model", options.model,
-            "--output-format", "json",
-            "--output-dir", tmpDir,
-            "--condition-on-previous-text", sens.conditionOnPreviousText ? "True" : "False",
-            "--word-timestamps", "True",
-            "--max-line-width", "20",
-            "--max-line-count", "1",
-            "--logprob-threshold", String(sens.logprobThreshold),
-            "--compression-ratio-threshold", String(sens.compressionRatioThreshold),
-            "--suppress-tokens", "",
-            "--no-speech-threshold", String(sens.noSpeechThreshold),
+            "-m", options.model,
+            "-f", wavPath,
+            "-l", detectedLang.isEmpty ? "auto" : detectedLang,
+            "-t", "10",
+            "--beam-size", String(sens.beamSize),
             "--best-of", String(sens.bestOf),
+            "--no-speech-thold", String(sens.noSpeechThreshold),
+            "--logprob-thold", String(sens.logprobThreshold),
+            "--entropy-thold", String(sens.entropyThreshold),
+            "--output-srt",
+            "--output-json",
+            "-of", outputBase,
         ]
-        if sens.hallucinationSilenceThreshold > 0 {
-            whisperArgs += ["--hallucination-silence-threshold", String(sens.hallucinationSilenceThreshold)]
-        }
-        if !detectedLang.isEmpty {
-            whisperArgs += ["--language", detectedLang]
-        }
 
-        let (_, whisperExit) = run(mlxWhisper, arguments: whisperArgs, environment: ["PYTHONUNBUFFERED": "1"]) { line in
-            if let match = line.range(of: #"\d{2}:\d{2}\.\d{3} --> (\d{2}:\d{2}\.\d{3})"#, options: .regularExpression) {
-                let endTimeStr = String(line[match]).components(separatedBy: " --> ").last ?? ""
-                let endSeconds = self.parseSrtTimestamp(endTimeStr)
-                let text = line.components(separatedBy: "] ").last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let (_, whisperExit) = run(whisperCli, arguments: whisperArgs) { line in
+            // Parse whisper-cli output: [00:01:30.000 --> 00:01:35.000] text
+            if let match = line.range(of: #"\[(\d{2}:\d{2}:\d{2}\.\d{3}) --> (\d{2}:\d{2}:\d{2}\.\d{3})\]"#, options: .regularExpression) {
+                let timeStr = String(line[match])
+                // Extract end time: HH:MM:SS.mmm
+                if let endRange = timeStr.range(of: #"\d{2}:\d{2}:\d{2}\.\d{3}\]$"#, options: .regularExpression) {
+                    let endStr = String(timeStr[endRange]).dropLast()  // remove ]
+                    let parts = endStr.components(separatedBy: ":")
+                    if parts.count == 3 {
+                        let hours = Double(parts[0]) ?? 0
+                        let mins = Double(parts[1]) ?? 0
+                        let secs = Double(parts[2]) ?? 0
+                        let endSeconds = hours * 3600 + mins * 60 + secs
+                        let text = line.components(separatedBy: "]").last?.trimmingCharacters(in: .whitespaces) ?? ""
 
-                DispatchQueue.main.async {
-                    if totalDuration > 0 {
-                        self.fileProgress = min(endSeconds / totalDuration, 1.0)
+                        DispatchQueue.main.async {
+                            if totalDuration > 0 {
+                                self.fileProgress = min(endSeconds / totalDuration, 1.0)
+                            }
+                            self.eta = self.calculateOverallEta()
+                            self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) \(Int(self.fileProgress * 100))% \(text)"
+                        }
                     }
-                    self.eta = self.calculateOverallEta()
-                    self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) \(Int(self.fileProgress * 100))% \(text)"
-                }
-            } else if line.contains("Detected language:") {
-                let lang = line.components(separatedBy: "Detected language:").last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                DispatchQueue.main.async {
-                    self.currentStatus = "\(self.currentIndex + 1)/\(self.totalFileCount) 언어 감지: \(lang)"
                 }
             }
         }
@@ -658,15 +662,15 @@ class TranscriptionEngine: ObservableObject {
             return .failed(error: "음성 인식 실패 (exit: \(whisperExit))")
         }
 
-        guard let jsonPath = findJsonFile(in: tmpDir) else {
-            logDebug("json path not found")
-            return .failed(error: "JSON 파일 없음")
-        }
-        logDebug("json path: \(jsonPath)")
-
-        // Step 2: Parse json and generate srt
+        // Step 2: Read whisper-cli output and apply post-processing
         let language = detectedLang.isEmpty ? "und" : detectedLang
         logDebug("Using language: \(language)")
+
+        let jsonPath = "\(outputBase).json"
+        guard fm.fileExists(atPath: jsonPath) else {
+            logDebug("json not found at \(jsonPath)")
+            return .failed(error: "JSON 파일 없음")
+        }
 
         guard let jsonData = try? Data(contentsOf: URL(fileURLWithPath: jsonPath)) else {
             logDebug("Failed to read json file")
@@ -675,27 +679,31 @@ class TranscriptionEngine: ObservableObject {
 
         logDebug("JSON data size: \(jsonData.count)")
 
-        // Sanitize JSON: replace NaN/Infinity which JSONSerialization rejects but Python allows
-        let sanitizedData: Data
-        if var jsonString = String(data: jsonData, encoding: .utf8) {
-            jsonString = jsonString.replacingOccurrences(of: ": NaN", with: ": 0")
-            jsonString = jsonString.replacingOccurrences(of: ": Infinity", with: ": 0")
-            jsonString = jsonString.replacingOccurrences(of: ": -Infinity", with: ": 0")
-            jsonString = jsonString.replacingOccurrences(of: ":NaN", with: ":0")
-            jsonString = jsonString.replacingOccurrences(of: ":Infinity", with: ":0")
-            jsonString = jsonString.replacingOccurrences(of: ":-Infinity", with: ":0")
-            sanitizedData = jsonString.data(using: .utf8) ?? jsonData
-        } else {
-            sanitizedData = jsonData
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: sanitizedData) as? [String: Any] else {
+        // whisper-cli JSON uses "transcription" array, not "segments"
+        guard let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
             let preview = String(data: jsonData.prefix(200), encoding: .utf8) ?? "nil"
             logDebug("Failed to parse json, preview: \(preview)")
             return .failed(error: "JSON 파싱 실패")
         }
-        guard let segments = json["segments"] as? [[String: Any]] else {
-            logDebug("No segments in json, keys: \(json.keys)")
+
+        // whisper-cli JSON format: {"transcription": [{"timestamps": {"from": "...", "to": "..."}, "text": "..."}]}
+        let segments: [[String: Any]]
+        if let transcription = json["transcription"] as? [[String: Any]] {
+            // Convert whisper-cli format to common format
+            segments = transcription.compactMap { entry -> [String: Any]? in
+                guard let timestamps = entry["timestamps"] as? [String: String],
+                      let fromStr = timestamps["from"],
+                      let toStr = timestamps["to"],
+                      let text = entry["text"] as? String else { return nil }
+                let start = parseTimestamp(fromStr)
+                let end = parseTimestamp(toStr)
+                return ["start": start, "end": end, "text": text,
+                        "no_speech_prob": entry["no_speech_prob"] as? Double ?? 0]
+            }
+        } else if let segs = json["segments"] as? [[String: Any]] {
+            segments = segs
+        } else {
+            logDebug("No segments/transcription in json")
             return .failed(error: "세그먼트 없음")
         }
         logDebug("Parsed \(segments.count) segments")
@@ -812,6 +820,16 @@ class TranscriptionEngine: ObservableObject {
         ])
         guard exitCode == 0 else { return 0 }
         return Double(output.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+    }
+
+    /// Parse "HH:MM:SS.mmm" timestamp from whisper-cli JSON
+    private func parseTimestamp(_ str: String) -> Double {
+        let parts = str.components(separatedBy: ":")
+        guard parts.count == 3 else { return 0 }
+        let hours = Double(parts[0]) ?? 0
+        let mins = Double(parts[1]) ?? 0
+        let secs = Double(parts[2]) ?? 0
+        return hours * 3600 + mins * 60 + secs
     }
 
     func parseSrtTimestamp(_ str: String) -> Double {

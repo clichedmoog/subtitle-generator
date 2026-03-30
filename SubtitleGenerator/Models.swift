@@ -61,12 +61,12 @@ enum FileStatus: Equatable {
 }
 
 enum WhisperModel: String, CaseIterable, Identifiable {
-    case largev3 = "mlx-community/whisper-large-v3-mlx"
-    case largev3turbo = "mlx-community/whisper-large-v3-turbo"
-    case medium = "mlx-community/whisper-medium-mlx"
-    case small = "mlx-community/whisper-small-mlx"
-    case base = "mlx-community/whisper-base-mlx"
-    case tiny = "mlx-community/whisper-tiny-mlx"
+    case largev3 = "ggml-large-v3.bin"
+    case largev3turbo = "ggml-large-v3-turbo.bin"
+    case medium = "ggml-medium.bin"
+    case small = "ggml-small.bin"
+    case base = "ggml-base.bin"
+    case tiny = "ggml-tiny.bin"
 
     var id: String { rawValue }
 
@@ -81,13 +81,14 @@ enum WhisperModel: String, CaseIterable, Identifiable {
         }
     }
 
-    var cacheDir: String {
-        let repo = rawValue.replacingOccurrences(of: "/", with: "--")
-        return "\(NSHomeDirectory())/.cache/huggingface/hub/models--\(repo)"
+    /// Full path to the GGML model file
+    var modelPath: String {
+        let modelDir = "\(NSHomeDirectory())/.cache/whisper-cpp"
+        return "\(modelDir)/\(rawValue)"
     }
 
     var isCached: Bool {
-        FileManager.default.fileExists(atPath: cacheDir)
+        FileManager.default.fileExists(atPath: modelPath)
     }
 
     var sizeLabel: String {
@@ -99,6 +100,10 @@ enum WhisperModel: String, CaseIterable, Identifiable {
         case .base: return "~290MB"
         case .tiny: return "~150MB"
         }
+    }
+
+    var downloadURL: String {
+        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/\(rawValue)"
     }
 }
 
@@ -176,19 +181,31 @@ enum Sensitivity: String, CaseIterable, Identifiable {
         }
     }
 
-    var noSpeechThreshold: Double { 0.4 }
-    var logprobThreshold: Double { -1.0 }
-    var compressionRatioThreshold: Double { 2.8 }
-
-    var hallucinationSilenceThreshold: Double {
+    var noSpeechThreshold: Double {
         switch self {
-        case .sensitive: return 3.0
-        case .normal: return 2.0
-        case .accurate: return 1.0
+        case .sensitive: return 0.3
+        case .normal: return 0.4
+        case .accurate: return 0.5
         }
     }
 
-    var conditionOnPreviousText: Bool { false }
+    var logprobThreshold: Double {
+        switch self {
+        case .sensitive: return -1.2
+        case .normal: return -1.0
+        case .accurate: return -0.8
+        }
+    }
+
+    var entropyThreshold: Double {
+        switch self {
+        case .sensitive: return 3.0
+        case .normal: return 2.8
+        case .accurate: return 2.4
+        }
+    }
+
+    var beamSize: Int { 3 }
     var bestOf: Int { 3 }
 }
 
