@@ -979,7 +979,8 @@ class TranscriptionEngine: ObservableObject {
             let trimmed = text.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { continue }
 
-            let duration = end - start
+            let cappedEnd = min(end, start + 30)  // Cap max duration to 30s
+            let duration = cappedEnd - start
 
             // Filter 1: Too short segments (likely noise)
             if duration < minDuration { continue }
@@ -1004,9 +1005,9 @@ class TranscriptionEngine: ObservableObject {
 
             // Merge consecutive duplicates
             if let last = entries.last, last.text == trimmed {
-                entries[entries.count - 1].end = end
+                entries[entries.count - 1].end = cappedEnd
             } else {
-                entries.append(SrtEntry(start: start, end: end, text: trimmed))
+                entries.append(SrtEntry(start: start, end: cappedEnd, text: trimmed))
             }
         }
 
